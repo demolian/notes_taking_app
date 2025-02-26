@@ -103,6 +103,23 @@ export default function App() {
   // Create or update a note
   async function saveNote() {
     let imageUrl: string | null = null;
+    let oldImageUrl: string | null = null; // Store the old image URL
+
+    // If editing, get the existing note's image URL
+    if (editingId) {
+      const { data: existingNote, error: existingNoteError } = await supabase
+        .from('notes')
+        .select('image_url')
+        .eq('id', editingId)
+        .single();
+
+      if (existingNoteError) {
+        Alert.alert('Error getting existing note', existingNoteError.message);
+        return;
+      }
+      oldImageUrl = existingNote?.image_url;
+    }
+
     if (image) {
       const uploadedUrl = await uploadImage(image);
       if (uploadedUrl) {
@@ -112,6 +129,7 @@ export default function App() {
         return;
       }
     }
+
     const timestamp = new Date().toISOString();
     if (editingId) {
       const { error } = await supabase
@@ -123,9 +141,33 @@ export default function App() {
           updated_at: timestamp,
         })
         .eq('id', editingId);
+
       if (error) Alert.alert('Error updating note', error.message);
       else {
         Alert.alert('Note updated');
+      }
+
+      // Delete the old image if it was replaced
+      if (oldImageUrl && imageUrl !== oldImageUrl) {
+        const oldImagePath = oldImageUrl.split('/').pop();
+        if (oldImagePath) {
+          const { error: storageError } = await supabase.storage
+            .from('notes-images')
+            .remove([oldImagePath]);
+
+          if (storageError) {
+            console.error(
+              'Error deleting old image from storage',
+              storageError.message
+            );
+            Alert.alert(
+              'Note updated, but error deleting old image',
+              storageError.message
+            );
+          } else {
+            console.log('Old image deleted from storage');
+          }
+        }
       }
     } else {
       const { error } = await supabase
