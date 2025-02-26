@@ -12,7 +12,8 @@
     "react-scripts": "^5.0.1",
     "web-vitals": "^2.1.4",
     "browser-image-compression": "^1.0.0",
-    "supabase": "^1.0.0"
+    "supabase": "^1.0.0",
+    "@supabase/supabase-js": "^2.0.0"
   },
   "scripts": {
     "start": "react-scripts start",
