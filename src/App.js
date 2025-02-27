@@ -3,6 +3,7 @@ import './App.css'; // Import CSS
 import { supabase } from './supabase/supabaseClient'; 
 import imageCompression from 'browser-image-compression';
 import axios from 'axios';
+import PasswordModal from './PasswordModal'; // Correct import
 
 export default function App() {
   const [notes, setNotes] = useState([]);
@@ -10,6 +11,10 @@ export default function App() {
   const [content, setContent] = useState('');
   const [image, setImage] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const [noteToDelete, setNoteToDelete] = useState(null);
+  const [actionType, setActionType] = useState(''); // New state to track action type
+  const [noteToEdit, setNoteToEdit] = useState(null);
 
   useEffect(() => {
     fetchNotes();
@@ -29,7 +34,9 @@ export default function App() {
       for (let i = 0; i < items.length; i++) {
         if (items[i].type.indexOf('image') !== -1) {
           const blob = items[i].getAsFile();
-          setImage(blob);
+          if (blob) {
+            setImage(blob);
+          }
           break;
         }
       }
@@ -130,19 +137,18 @@ export default function App() {
 
   // Pick an image using the device's image library
   async function pickImage() {
-    // Web implementation using a file input
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'image/*'; // Limit to image files
+    input.accept = 'image/*';
 
     input.onchange = async (event) => {
       const file = event.target.files[0];
       if (file) {
-        setImage(file); // Set the File object directly
+        setImage(file);
       }
     };
 
-    input.click(); // Programmatically trigger the file input
+    input.click();
   }
 
   // Function to refresh notes
@@ -246,6 +252,36 @@ export default function App() {
     refreshNotes();
   }
 
+  const handleDelete = (id) => {
+    setNoteToDelete(id);
+    setActionType('delete');
+    setShowModal(true);
+  };
+
+  const handleEdit = (note) => {
+    setNoteToEdit(note);
+    setActionType('edit');
+    setShowModal(true);
+  };
+
+  const confirmAction = async (password) => {
+    const correctPassword = process.env.REACT_APP_ADMIN_PASSWORD;
+
+    if (password.trim() !== correctPassword) {
+      alert('Incorrect password.');
+      setShowModal(false);
+      return;
+    }
+
+    if (actionType === 'delete') {
+      await deleteNote(noteToDelete);
+    } else if (actionType === 'edit') {
+      startEdit(noteToEdit);
+    }
+
+    setShowModal(false);
+  };
+
   // Delete a note
   async function deleteNote(id) {
     // Get the note to retrieve the image URL
@@ -256,7 +292,7 @@ export default function App() {
       .single();
 
     if (noteError) {
-      alert('Error getting note: ' + noteError.message); // Use alert for web
+      alert('Error getting note: ' + noteError.message);
       return;
     }
 
@@ -269,13 +305,13 @@ export default function App() {
       .eq('id', id);
 
     if (error) {
-      alert('Error deleting note: ' + error.message); // Use alert for web
+      alert('Error deleting note: ' + error.message);
       return;
     }
 
     // Delete the image from storage if it exists
     if (imageUrl) {
-      const imagePath = imageUrl.split('/').pop(); // Extract file name from URL
+      const imagePath = imageUrl.split('/').pop();
       if (imagePath) {
         const { error: storageError } = await supabase.storage
           .from('notes-images')
@@ -283,16 +319,14 @@ export default function App() {
 
         if (storageError) {
           console.error('Error deleting image from storage', storageError.message);
-          alert(
-            'Note deleted, but error deleting image: ' + storageError.message
-          ); // Use alert for web
+          alert('Note deleted, but error deleting image: ' + storageError.message);
         } else {
           console.log('Image deleted from storage');
-          alert('Note and image deleted'); // Use alert for web
+          alert('Note and image deleted');
         }
       }
     } else {
-      alert('Note deleted'); // Use alert for web
+      alert('Note deleted');
     }
 
     // Refresh notes without reloading
@@ -315,8 +349,8 @@ export default function App() {
         <img src={item.image_url} alt="Note Image" className="noteImage" />
       ) : null}
       <div className="noteActions">
-        <button onClick={() => startEdit(item)}>Edit</button>
-        <button onClick={() => deleteNote(item.id)} style={{ color: 'red' }}>
+        <button onClick={() => handleEdit(item)}>Edit</button>
+        <button onClick={() => handleDelete(item.id)} style={{ color: 'red' }}>
           Delete
         </button>
       </div>
@@ -342,7 +376,7 @@ export default function App() {
         />
         <div className="buttonRow">
           <button onClick={pickImage}>Pick Image</button>
-          {image && (
+          {image && image instanceof Blob && (
             <img src={URL.createObjectURL(image)} alt="Preview" className="previewImage" />
           )}
         </div>
@@ -353,9 +387,17 @@ export default function App() {
       </div>
       <div className="notesList">
         {notes.map((item) => (
-          <div key={item.id}>{renderItem(item)}</div>
+          <div key={item.id}>
+            {renderItem(item)}
+          </div>
         ))}
       </div>
+      {showModal && (
+        <PasswordModal
+          onConfirm={confirmAction}
+          onCancel={() => setShowModal(false)}
+        />
+      )}
     </div>
   );
 }
