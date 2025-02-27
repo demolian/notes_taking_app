@@ -23,9 +23,24 @@ export default function App() {
       })
       .subscribe();
 
+    // Add paste event listener
+    const handlePaste = (event) => {
+      const items = event.clipboardData.items;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const blob = items[i].getAsFile();
+          setImage(blob);
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+
     // Clean up subscription on unmount
     return () => {
       supabase.removeChannel(notesSubscription);
+      window.removeEventListener('paste', handlePaste);
     };
   }, []);
 
