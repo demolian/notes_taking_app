@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './App.css'; // Import CSS
 import { supabase } from './supabase/supabaseClient'; 
 import imageCompression from 'browser-image-compression';
+import axios from 'axios';
 
 export default function App() {
   const [notes, setNotes] = useState([]);
@@ -12,6 +13,20 @@ export default function App() {
 
   useEffect(() => {
     fetchNotes();
+
+    // Set up real-time subscription
+    const notesSubscription = supabase
+      .channel('public:notes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, payload => {
+        console.log('Change received!', payload);
+        fetchNotes(); // Refresh notes on any change
+      })
+      .subscribe();
+
+    // Clean up subscription on unmount
+    return () => {
+      supabase.removeChannel(notesSubscription);
+    };
   }, []);
 
   // Fetch notes from Supabase
@@ -24,6 +39,34 @@ export default function App() {
       alert('Error: ' + error.message); // Use alert for web
     } else if (data) {
       setNotes(data);
+    }
+  }
+
+  // Function to call Google Gemini API
+  async function callGeminiAI(inputText) {
+    try {
+      const response = await axios.post(
+        'http://localhost:5000/generate',
+        { text: inputText },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      console.log('Gemini AI Response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error calling Gemini AI:', error);
+      alert('Error calling Gemini AI: ' + error.message);
+    }
+  }
+
+  // Example usage of callGeminiAI
+  async function analyzeNoteContent() {
+    if (content) {
+      const analysis = await callGeminiAI(content);
+      console.log('Analysis Result:', analysis);
     }
   }
 
@@ -85,6 +128,11 @@ export default function App() {
     };
 
     input.click(); // Programmatically trigger the file input
+  }
+
+  // Function to refresh notes
+  function refreshNotes() {
+    fetchNotes();
   }
 
   // Create or update a note
@@ -173,12 +221,14 @@ export default function App() {
         alert('Note created'); // Use alert for web
       }
     }
-    // Reset form and refresh
+    // Reset form
     setTitle('');
     setContent('');
     setImage(null);
     setEditingId(null);
-    fetchNotes();
+
+    // Refresh notes without reloading
+    refreshNotes();
   }
 
   // Delete a note
@@ -230,7 +280,8 @@ export default function App() {
       alert('Note deleted'); // Use alert for web
     }
 
-    fetchNotes();
+    // Refresh notes without reloading
+    refreshNotes();
   }
 
   // Start editing a note
@@ -259,7 +310,7 @@ export default function App() {
 
   return (
     <div className="container">
-      <h1 className="header">NotesApp</h1>
+      <h1 className="header">Notes</h1>
       <div className="form">
         <input
           type="text"
@@ -277,12 +328,13 @@ export default function App() {
         <div className="buttonRow">
           <button onClick={pickImage}>Pick Image</button>
           {image && (
-            <img src={image} alt="Preview" className="previewImage" />
+            <img src={URL.createObjectURL(image)} alt="Preview" className="previewImage" />
           )}
         </div>
         <button onClick={saveNote}>
           {editingId ? 'Update Note' : 'Add Note'}
         </button>
+        <button onClick={analyzeNoteContent}>Analyze Content</button>
       </div>
       <div className="notesList">
         {notes.map((item) => (
