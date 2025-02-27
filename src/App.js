@@ -4,6 +4,7 @@ import { supabase } from './supabase/supabaseClient';
 import imageCompression from 'browser-image-compression';
 import axios from 'axios';
 import PasswordModal from './PasswordModal'; // Correct import
+import ImageModal from './ImageModal'; // Import the ImageModal
 
 export default function App() {
   const [notes, setNotes] = useState([]);
@@ -15,6 +16,7 @@ export default function App() {
   const [noteToDelete, setNoteToDelete] = useState(null);
   const [actionType, setActionType] = useState(''); // New state to track action type
   const [noteToEdit, setNoteToEdit] = useState(null);
+  const [fullImageUrl, setFullImageUrl] = useState(null); // State for full-screen image
 
   useEffect(() => {
     fetchNotes();
@@ -348,7 +350,12 @@ export default function App() {
       <h3 className="noteTitle">{item.title}</h3>
       <p>{item.content}</p>
       {item.image_url ? (
-        <img src={item.image_url} alt="Note Image" className="noteImage" />
+        <img
+          src={item.image_url}
+          alt="Note Image"
+          className="noteImage"
+          onClick={() => setFullImageUrl(item.image_url)} // Set full image URL on click
+        />
       ) : null}
       <div className="noteActions">
         <button onClick={() => handleEdit(item)}>Edit</button>
@@ -399,6 +406,12 @@ export default function App() {
         <PasswordModal
           onConfirm={confirmAction}
           onCancel={() => setShowModal(false)}
+        />
+      )}
+      {fullImageUrl && (
+        <ImageModal
+          imageUrl={fullImageUrl}
+          onClose={() => setFullImageUrl(null)}
         />
       )}
     </div>
