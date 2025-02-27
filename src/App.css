@@ -88,7 +88,14 @@ button:hover {
 .noteActions {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   margin-top: 10px;
+}
+
+.createdAt {
+  margin: 0 10px;
+  font-size: 0.9em;
+  color: #555;
 }
 
 .previewImage {

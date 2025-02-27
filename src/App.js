@@ -159,9 +159,8 @@ export default function App() {
   // Create or update a note
   async function saveNote() {
     let imageUrl = null;
-    let oldImageUrl = null; // Store the old image URL
+    let oldImageUrl = null;
 
-    // If editing, get the existing note's image URL
     if (editingId) {
       const { data: existingNote, error: existingNoteError } = await supabase
         .from('notes')
@@ -170,7 +169,7 @@ export default function App() {
         .single();
 
       if (existingNoteError) {
-        alert('Error getting existing note: ' + existingNoteError.message); // Use alert for web
+        alert('Error getting existing note: ' + existingNoteError.message);
         return;
       }
       oldImageUrl = existingNote?.image_url;
@@ -181,12 +180,22 @@ export default function App() {
       if (uploadedUrl) {
         imageUrl = uploadedUrl;
       } else {
-        alert('Error: Failed to upload image.'); // Use alert for web
+        alert('Error: Failed to upload image.');
         return;
       }
     }
 
-    const timestamp = new Date().toISOString();
+    const timestamp = new Date();
+    const formattedDate = timestamp.toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+
     if (editingId) {
       const { error } = await supabase
         .from('notes')
@@ -194,16 +203,16 @@ export default function App() {
           title,
           content,
           image_url: imageUrl,
-          updated_at: timestamp,
+          updated_at: timestamp.toISOString(),
+          created_at: formattedDate,
         })
         .eq('id', editingId);
 
-      if (error) alert('Error updating note: ' + error.message); // Use alert for web
+      if (error) alert('Error updating note: ' + error.message);
       else {
-        alert('Note updated'); // Use alert for web
+        alert('Note updated');
       }
 
-      // Delete the old image if it was replaced
       if (oldImageUrl && imageUrl !== oldImageUrl) {
         const oldImagePath = oldImageUrl.split('/').pop();
         if (oldImagePath) {
@@ -212,14 +221,8 @@ export default function App() {
             .remove([oldImagePath]);
 
           if (storageError) {
-            console.error(
-              'Error deleting old image from storage',
-              storageError.message
-            );
-            alert(
-              'Note updated, but error deleting old image: ' +
-                storageError.message
-            ); // Use alert for web
+            console.error('Error deleting old image from storage', storageError.message);
+            alert('Note updated, but error deleting old image: ' + storageError.message);
           } else {
             console.log('Old image deleted from storage');
           }
@@ -233,22 +236,21 @@ export default function App() {
             title,
             content,
             image_url: imageUrl,
-            created_at: timestamp,
-            updated_at: timestamp,
+            created_at: formattedDate,
+            updated_at: timestamp.toISOString(),
           },
         ]);
-      if (error) alert('Error creating note: ' + error.message); // Use alert for web
+      if (error) alert('Error creating note: ' + error.message);
       else {
-        alert('Note created'); // Use alert for web
+        alert('Note created');
       }
     }
-    // Reset form
+
     setTitle('');
     setContent('');
     setImage(null);
     setEditingId(null);
 
-    // Refresh notes without reloading
     refreshNotes();
   }
 
@@ -350,6 +352,7 @@ export default function App() {
       ) : null}
       <div className="noteActions">
         <button onClick={() => handleEdit(item)}>Edit</button>
+        <p className="createdAt">Created At: {item.created_at}</p>
         <button onClick={() => handleDelete(item.id)} style={{ color: 'red' }}>
           Delete
         </button>
