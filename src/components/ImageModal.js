@@ -1,5 +1,5 @@
 import React from 'react';
-import './ImageModal.css';
+import '../ImageModal.css';
 
 export default function ImageModal({ imageUrl, onClose }) {
   return (

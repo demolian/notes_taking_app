@@ -3,10 +3,13 @@ import './App.css'; // Import CSS
 import { supabase } from './supabase/supabaseClient'; 
 import imageCompression from 'browser-image-compression';
 import axios from 'axios';
-import PasswordModal from './PasswordModal'; // Correct import
-import ImageModal from './ImageModal'; // Import the ImageModal
+import PasswordModal from './components/PasswordModal'; // Correct import
+import ImageModal from './components/ImageModal'; // Import the ImageModal
 import { ReactMediaRecorder } from 'react-media-recorder';
 import CryptoJS from 'crypto-js';
+import NoteForm from './components/NoteForm';
+import NoteList from './components/NoteList';
+import ConfirmationModal from './components/ConfirmationModal';
 
 export default function App() {
   const [notes, setNotes] = useState([]);
@@ -20,6 +23,7 @@ export default function App() {
   const [actionType, setActionType] = useState(''); // New state to track action type
   const [noteToEdit, setNoteToEdit] = useState(null);
   const [fullImageUrl, setFullImageUrl] = useState(null); // State for full-screen image
+  const [showConfirmation, setShowConfirmation] = useState(false);
 
   useEffect(() => {
     fetchNotes();
@@ -235,16 +239,27 @@ export default function App() {
     refreshNotes();
   }
 
-  const handleDelete = (id) => {
-    setNoteToDelete(id);
-    setActionType('delete');
-    setShowModal(true);
+  const handleEdit = (note) => {
+    setEditingId(note.id);
   };
 
-  const handleEdit = (note) => {
-    setNoteToEdit(note);
-    setActionType('edit');
-    setShowModal(true);
+  const handleDelete = (id) => {
+    setNoteToDelete(id);
+    setShowConfirmation(true); // Show confirmation modal
+  };
+
+  const confirmDelete = async () => {
+    const { error } = await supabase
+      .from('notes')
+      .delete()
+      .eq('id', noteToDelete);
+    if (error) {
+      alert('Error deleting note: ' + error.message);
+    } else {
+      alert('Note deleted');
+      fetchNotes(); // Refresh notes after deletion
+    }
+    setShowConfirmation(false); // Close confirmation modal
   };
 
   const confirmAction = async (password) => {
@@ -352,110 +367,18 @@ export default function App() {
     return result.data.publicUrl;
   };
 
-  const renderItem = (item) => {
-    const secretKey = process.env.REACT_APP_SECRET_KEY;
-    const decryptedTitle = CryptoJS.AES.decrypt(item.title, secretKey).toString(CryptoJS.enc.Utf8);
-    const decryptedContent = CryptoJS.AES.decrypt(item.content, secretKey).toString(CryptoJS.enc.Utf8);
-    const decryptedImageUrl = item.image_url ? CryptoJS.AES.decrypt(item.image_url, secretKey).toString(CryptoJS.enc.Utf8) : null;
-
-    return (
-      <div className="noteCard">
-        <h3 className="noteTitle">{decryptedTitle}</h3>
-        <p className="noteContent">
-          {decryptedContent.split('\n').map((line, index) => (
-            <React.Fragment key={index}>
-              {line}
-              <br />
-            </React.Fragment>
-          ))}
-        </p>
-        {decryptedImageUrl ? (
-          <img
-            src={decryptedImageUrl}
-            alt="Note Image"
-            className="noteImage"
-            onClick={() => setFullImageUrl(decryptedImageUrl)}
-          />
-        ) : null}
-        {item.voice_url ? (
-          <audio controls>
-            <source src={item.voice_url} type="audio/wav" />
-            Your browser does not support the audio element.
-          </audio>
-        ) : null}
-        <div className="noteActions">
-          <button onClick={() => handleEdit(item)}>Edit</button>
-          <p className="createdAt">Created At: {item.created_at}</p>
-          <button onClick={() => handleDelete(item.id)} style={{ color: 'red' }}>
-            Delete
-          </button>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="container">
       <h1 className="header">Notes</h1>
-      <div className="form">
-        <input
-          type="text"
-          className="input"
-          placeholder="Title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <textarea
-          className="input multiline"
-          placeholder="Content"
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-        />
-        <div className="buttonRow">
-          <button onClick={pickImage}>Pick Image</button>
-          {image && image instanceof Blob && (
-            <img src={URL.createObjectURL(image)} alt="Preview" className="previewImage" />
-          )}
-        </div>
-        <div className="voiceNote">
-          <ReactMediaRecorder
-            audio
-            onStop={(blobUrl, blob) => {
-              setVoiceUrl(blobUrl);
-              uploadVoiceNote(blob);
-            }}
-            render={({ status, startRecording, stopRecording }) => (
-              <div>
-                <p>{status}</p>
-                <button onClick={startRecording}>Start Recording</button>
-                <button onClick={stopRecording}>Stop Recording</button>
-                {voiceUrl && <audio src={voiceUrl} controls />}
-              </div>
-            )}
-          />
-        </div>
-        <button onClick={saveNote}>
-          {editingId ? 'Update Note' : 'Add Note'}
-        </button>
-        <button onClick={analyzeNoteContent}>Analyze Content</button>
-      </div>
-      <div className="notesList">
-        {notes.map((item) => (
-          <div key={item.id}>
-            {renderItem(item)}
-          </div>
-        ))}
-      </div>
-      {showModal && (
-        <PasswordModal
-          onConfirm={confirmAction}
-          onCancel={() => setShowModal(false)}
-        />
-      )}
-      {fullImageUrl && (
-        <ImageModal
-          imageUrl={fullImageUrl}
-          onClose={() => setFullImageUrl(null)}
+      <NoteForm refreshNotes={fetchNotes} editingId={editingId} setEditingId={setEditingId} />
+      <NoteList notes={notes} handleEdit={handleEdit} handleDelete={handleDelete} />
+      {showModal && <PasswordModal onConfirm={confirmAction} onCancel={() => setShowModal(false)} />}
+      {fullImageUrl && <ImageModal imageUrl={fullImageUrl} onClose={() => setFullImageUrl(null)} />}
+      {showConfirmation && (
+        <ConfirmationModal
+          message="Are you sure you want to delete this note?"
+          onConfirm={confirmDelete}
+          onCancel={() => setShowConfirmation(false)}
         />
       )}
     </div>
