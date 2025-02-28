@@ -348,13 +348,20 @@ export default function App() {
   const renderItem = (item) => (
     <div className="noteCard">
       <h3 className="noteTitle">{item.title}</h3>
-      <p>{item.content}</p>
+      <p className="noteContent">
+        {item.content.split('\n').map((line, index) => (
+          <React.Fragment key={index}>
+            {line}
+            <br />
+          </React.Fragment>
+        ))}
+      </p>
       {item.image_url ? (
         <img
           src={item.image_url}
           alt="Note Image"
           className="noteImage"
-          onClick={() => setFullImageUrl(item.image_url)} // Set full image URL on click
+          onClick={() => setFullImageUrl(item.image_url)}
         />
       ) : null}
       <div className="noteActions">
