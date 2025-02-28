@@ -5,12 +5,15 @@ import imageCompression from 'browser-image-compression';
 import axios from 'axios';
 import PasswordModal from './PasswordModal'; // Correct import
 import ImageModal from './ImageModal'; // Import the ImageModal
+import { ReactMediaRecorder } from 'react-media-recorder';
+import CryptoJS from 'crypto-js';
 
 export default function App() {
   const [notes, setNotes] = useState([]);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [image, setImage] = useState(null);
+  const [voiceUrl, setVoiceUrl] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState(null);
@@ -25,7 +28,6 @@ export default function App() {
     const notesSubscription = supabase
       .channel('public:notes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, payload => {
-        console.log('Change received!', payload);
         fetchNotes(); // Refresh notes on any change
       })
       .subscribe();
@@ -161,30 +163,14 @@ export default function App() {
   // Create or update a note
   async function saveNote() {
     let imageUrl = null;
-    let oldImageUrl = null;
-
-    if (editingId) {
-      const { data: existingNote, error: existingNoteError } = await supabase
-        .from('notes')
-        .select('image_url')
-        .eq('id', editingId)
-        .single();
-
-      if (existingNoteError) {
-        alert('Error getting existing note: ' + existingNoteError.message);
-        return;
-      }
-      oldImageUrl = existingNote?.image_url;
-    }
+    let voiceUrl = null;
 
     if (image) {
-      const uploadedUrl = await uploadImage(image);
-      if (uploadedUrl) {
-        imageUrl = uploadedUrl;
-      } else {
-        alert('Error: Failed to upload image.');
-        return;
-      }
+      imageUrl = await uploadImage(image);
+    }
+
+    if (voiceUrl) {
+      voiceUrl = await uploadVoiceNote(voiceUrl);
     }
 
     const timestamp = new Date();
@@ -198,13 +184,20 @@ export default function App() {
       hour12: false,
     });
 
+    // Encrypt the note title, content, and image URL
+    const secretKey = process.env.REACT_APP_SECRET_KEY;
+    const encryptedTitle = CryptoJS.AES.encrypt(title, secretKey).toString();
+    const encryptedContent = CryptoJS.AES.encrypt(content, secretKey).toString();
+    const encryptedImageUrl = imageUrl ? CryptoJS.AES.encrypt(imageUrl, secretKey).toString() : null;
+
     if (editingId) {
       const { error } = await supabase
         .from('notes')
         .update({
-          title,
-          content,
-          image_url: imageUrl,
+          title: encryptedTitle,
+          content: encryptedContent,
+          image_url: encryptedImageUrl,
+          voice_url: voiceUrl,
           updated_at: timestamp.toISOString(),
           created_at: formattedDate,
         })
@@ -214,30 +207,15 @@ export default function App() {
       else {
         alert('Note updated');
       }
-
-      if (oldImageUrl && imageUrl !== oldImageUrl) {
-        const oldImagePath = oldImageUrl.split('/').pop();
-        if (oldImagePath) {
-          const { error: storageError } = await supabase.storage
-            .from('notes-images')
-            .remove([oldImagePath]);
-
-          if (storageError) {
-            console.error('Error deleting old image from storage', storageError.message);
-            alert('Note updated, but error deleting old image: ' + storageError.message);
-          } else {
-            console.log('Old image deleted from storage');
-          }
-        }
-      }
     } else {
       const { error } = await supabase
         .from('notes')
         .insert([
           {
-            title,
-            content,
-            image_url: imageUrl,
+            title: encryptedTitle,
+            content: encryptedContent,
+            image_url: encryptedImageUrl,
+            voice_url: voiceUrl,
             created_at: formattedDate,
             updated_at: timestamp.toISOString(),
           },
@@ -251,6 +229,7 @@ export default function App() {
     setTitle('');
     setContent('');
     setImage(null);
+    setVoiceUrl(null);
     setEditingId(null);
 
     refreshNotes();
@@ -339,40 +318,81 @@ export default function App() {
 
   // Start editing a note
   function startEdit(note) {
-    setTitle(note.title);
-    setContent(note.content);
-    setImage(note.image_url);
+    const secretKey = process.env.REACT_APP_SECRET_KEY;
+
+    // Decrypt the note fields
+    const decryptedTitle = CryptoJS.AES.decrypt(note.title, secretKey).toString(CryptoJS.enc.Utf8);
+    const decryptedContent = CryptoJS.AES.decrypt(note.content, secretKey).toString(CryptoJS.enc.Utf8);
+    const decryptedImageUrl = note.image_url ? CryptoJS.AES.decrypt(note.image_url, secretKey).toString(CryptoJS.enc.Utf8) : null;
+
+    // Set the decrypted values in the state
+    setTitle(decryptedTitle);
+    setContent(decryptedContent);
+    setImage(decryptedImageUrl);
     setEditingId(note.id);
   }
 
-  const renderItem = (item) => (
-    <div className="noteCard">
-      <h3 className="noteTitle">{item.title}</h3>
-      <p className="noteContent">
-        {item.content.split('\n').map((line, index) => (
-          <React.Fragment key={index}>
-            {line}
-            <br />
-          </React.Fragment>
-        ))}
-      </p>
-      {item.image_url ? (
-        <img
-          src={item.image_url}
-          alt="Note Image"
-          className="noteImage"
-          onClick={() => setFullImageUrl(item.image_url)}
-        />
-      ) : null}
-      <div className="noteActions">
-        <button onClick={() => handleEdit(item)}>Edit</button>
-        <p className="createdAt">Created At: {item.created_at}</p>
-        <button onClick={() => handleDelete(item.id)} style={{ color: 'red' }}>
-          Delete
-        </button>
+  const uploadVoiceNote = async (blob) => {
+    const fileName = `${Date.now()}.wav`;
+    const { data, error } = await supabase.storage
+      .from('notes-voices')
+      .upload(fileName, blob, { cacheControl: '3600', upsert: false });
+
+    if (error) {
+      console.error('Supabase upload error:', error);
+      throw error;
+    }
+
+    const result = supabase.storage
+      .from('notes-voices')
+      .getPublicUrl(data.path);
+    if (!result.data.publicUrl) {
+      throw new Error('Error getting public URL');
+    }
+    return result.data.publicUrl;
+  };
+
+  const renderItem = (item) => {
+    const secretKey = process.env.REACT_APP_SECRET_KEY;
+    const decryptedTitle = CryptoJS.AES.decrypt(item.title, secretKey).toString(CryptoJS.enc.Utf8);
+    const decryptedContent = CryptoJS.AES.decrypt(item.content, secretKey).toString(CryptoJS.enc.Utf8);
+    const decryptedImageUrl = item.image_url ? CryptoJS.AES.decrypt(item.image_url, secretKey).toString(CryptoJS.enc.Utf8) : null;
+
+    return (
+      <div className="noteCard">
+        <h3 className="noteTitle">{decryptedTitle}</h3>
+        <p className="noteContent">
+          {decryptedContent.split('\n').map((line, index) => (
+            <React.Fragment key={index}>
+              {line}
+              <br />
+            </React.Fragment>
+          ))}
+        </p>
+        {decryptedImageUrl ? (
+          <img
+            src={decryptedImageUrl}
+            alt="Note Image"
+            className="noteImage"
+            onClick={() => setFullImageUrl(decryptedImageUrl)}
+          />
+        ) : null}
+        {item.voice_url ? (
+          <audio controls>
+            <source src={item.voice_url} type="audio/wav" />
+            Your browser does not support the audio element.
+          </audio>
+        ) : null}
+        <div className="noteActions">
+          <button onClick={() => handleEdit(item)}>Edit</button>
+          <p className="createdAt">Created At: {item.created_at}</p>
+          <button onClick={() => handleDelete(item.id)} style={{ color: 'red' }}>
+            Delete
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="container">
@@ -396,6 +416,23 @@ export default function App() {
           {image && image instanceof Blob && (
             <img src={URL.createObjectURL(image)} alt="Preview" className="previewImage" />
           )}
+        </div>
+        <div className="voiceNote">
+          <ReactMediaRecorder
+            audio
+            onStop={(blobUrl, blob) => {
+              setVoiceUrl(blobUrl);
+              uploadVoiceNote(blob);
+            }}
+            render={({ status, startRecording, stopRecording }) => (
+              <div>
+                <p>{status}</p>
+                <button onClick={startRecording}>Start Recording</button>
+                <button onClick={stopRecording}>Stop Recording</button>
+                {voiceUrl && <audio src={voiceUrl} controls />}
+              </div>
+            )}
+          />
         </div>
         <button onClick={saveNote}>
           {editingId ? 'Update Note' : 'Add Note'}
