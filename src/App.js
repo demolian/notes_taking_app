@@ -13,13 +13,24 @@ const secretKey = process.env.REACT_APP_SECRET_KEY; // Get the secret key from e
 
 // Function to encrypt data
 function encryptData(data) {
-  return CryptoJS.AES.encrypt(data, secretKey).toString();
+  return CryptoJS.AES.encrypt(JSON.stringify(data), secretKey).toString();
 }
 
 // Function to decrypt data
 function decryptData(ciphertext) {
-  const bytes = CryptoJS.AES.decrypt(ciphertext, secretKey);
-  return bytes.toString(CryptoJS.enc.Utf8);
+  try {
+    const bytes = CryptoJS.AES.decrypt(ciphertext, secretKey);
+    const decryptedData = bytes.toString(CryptoJS.enc.Utf8);
+    
+    if (!decryptedData) {
+      throw new Error('Decrypted data is empty');
+    }
+
+    return JSON.parse(decryptedData); // Ensure the decrypted data is parsed correctly
+  } catch (error) {
+    console.error('Decryption error:', error);
+    return null; // Return null if decryption fails
+  }
 }
 
 export default function App() {
@@ -38,6 +49,8 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSignUp, setIsSignUp] = useState(false); // State to toggle between login and sign-up
+  const [imageUrl, setImageUrl] = useState(null); // State for the image URL
+  const [analyzeContent, setAnalyzeContent] = useState('');
 
   useEffect(() => {
     const checkSession = async () => {
@@ -86,7 +99,7 @@ export default function App() {
   }, []);
 
   // Fetch notes from Supabase
-  async function fetchNotes() {
+  const fetchNotes = async () => {
     if (!user) return; // Only fetch notes if a user is logged in
     const { data, error } = await supabase
       .from('notes')
@@ -95,11 +108,12 @@ export default function App() {
       .order('created_at', { ascending: false }); // Order by creation date
 
     if (error) {
-      alert('Error fetching notes: ' + error.message); // Use alert for web
-    } else if (data) {
-      setNotes(data); // Set the notes state
+      console.error('Error fetching notes:', error);
+      return;
     }
-  }
+
+    setNotes(data); // Set the fetched notes in state
+  };
 
   // Function to call Google Gemini API
   async function callGeminiAI(inputText) {
@@ -128,7 +142,7 @@ export default function App() {
     }
   }
 
-  // Upload an image to Supabase Storage and return its public URL
+  // Function to upload an image to Supabase Storage and return its public URL
   async function uploadImage(file) {
     try {
       // Ensure the file is a valid Blob or File
@@ -136,19 +150,11 @@ export default function App() {
         throw new Error('The file given is not an instance of Blob or File');
       }
 
-      // Compress the image
-      const options = {
-        maxSizeMB: 10, // File size limit
-        maxWidthOrHeight: 800,
-        useWebWorker: true,
-      };
-      const compressedFile = await imageCompression(file, options);
-
-      const fileName = `${Date.now()}.jpg`;
+      const fileName = `${Date.now()}_${file.name}`; // Create a unique file name
 
       const { data, error } = await supabase.storage
         .from('notes-images')
-        .upload(fileName, compressedFile, { cacheControl: '3600', upsert: false });
+        .upload(fileName, file, { cacheControl: '3600', upsert: false });
 
       if (error) {
         console.error('Supabase upload error:', error);
@@ -156,14 +162,11 @@ export default function App() {
       }
 
       // Get public URL
-      const result = supabase.storage
+      const publicUrl = supabase.storage
         .from('notes-images')
-        .getPublicUrl(data.path);
-      if (!result.data.publicUrl) {
-        throw new Error('Error getting public URL');
-      }
-      const publicUrl = result.data.publicUrl;
-      return publicUrl;
+        .getPublicUrl(fileName).data.publicUrl;
+
+      return publicUrl; // Return the public URL
     } catch (err) {
       console.error('Image upload error:', err);
       alert('Upload Error: ' + (err.message || 'Image upload failed'));
@@ -180,7 +183,8 @@ export default function App() {
     input.onchange = async (event) => {
       const file = event.target.files[0];
       if (file) {
-        setImage(file);
+        const uploadedUrl = await uploadImage(file); // Upload the image and get the URL
+        setImageUrl(uploadedUrl); // Set the image URL in state
       }
     };
 
@@ -194,40 +198,10 @@ export default function App() {
 
   // Create or update a note
   async function saveNote() {
-    let imageUrl = null;
-    let oldImageUrl = null;
+    let imageUrlToSave = null;
 
-    if (editingId) {
-      const { data: existingNote, error: existingNoteError } = await supabase
-        .from('notes')
-        .select('image_url')
-        .eq('id', editingId)
-        .single();
-
-      if (existingNoteError) {
-        alert('Error getting existing note: ' + existingNoteError.message);
-        return;
-      }
-      oldImageUrl = existingNote?.image_url; // Store the old image URL
-    }
-
-    // Only upload a new image if one is provided
-    if (image) {
-      // Check if the image is a valid Blob or File
-      if (image instanceof Blob || image instanceof File) {
-        const uploadedUrl = await uploadImage(image);
-        if (uploadedUrl) {
-          imageUrl = uploadedUrl; // Use the new image URL if uploaded
-        } else {
-          alert('Error: Failed to upload image.');
-          return;
-        }
-      } else {
-        alert('Error: The file given is not an instance of Blob or File.');
-        return;
-      }
-    } else {
-      imageUrl = oldImageUrl; // Keep the old image URL if no new image is provided
+    if (imageUrl) {
+      imageUrlToSave = imageUrl; // Use the image URL from state
     }
 
     const timestamp = new Date();
@@ -241,10 +215,18 @@ export default function App() {
       hour12: false,
     });
 
-    // Encrypt title, content, and image URL before saving
-    const encryptedTitle = encryptData(title); // Encrypt title
-    const encryptedContent = encryptData(content); // Encrypt content
-    const encryptedImageUrl = encryptData(imageUrl); // Encrypt image URL
+    const noteData = {
+      title: title,
+      content: content,
+      image_url: imageUrlToSave,
+      created_at: formattedDate,
+      updated_at: formattedDate,
+      user_id: user.id,
+    };
+
+    const encryptedTitle = encryptData(noteData.title); // Encrypt title
+    const encryptedContent = encryptData(noteData.content); // Encrypt content
+    const encryptedImageUrl = encryptData(imageUrlToSave); // Encrypt image URL
 
     if (editingId) {
       const { error } = await supabase
@@ -252,7 +234,7 @@ export default function App() {
         .update({
           title: encryptedTitle,
           content: encryptedContent,
-          image_url: imageUrl ? encryptedImageUrl : null,
+          image_url: imageUrlToSave,
           updated_at: timestamp.toISOString(),
           user_id: user.id,
         })
@@ -264,8 +246,8 @@ export default function App() {
       }
 
       // Handle old image deletion if a new image is uploaded
-      if (image && oldImageUrl && imageUrl !== oldImageUrl) {
-        const oldImagePath = oldImageUrl.split('/').pop();
+      if (image && imageUrl && imageUrl !== imageUrlToSave) {
+        const oldImagePath = imageUrl.split('/').pop();
         if (oldImagePath) {
           const { error: storageError } = await supabase.storage
             .from('notes-images')
@@ -278,9 +260,9 @@ export default function App() {
             console.log('Old image deleted from storage');
           }
         }
-      } else if (image === null && oldImageUrl) {
+      } else if (image === null && imageUrl) {
         // If the image is deleted, remove it from storage
-        const oldImagePath = oldImageUrl.split('/').pop();
+        const oldImagePath = imageUrl.split('/').pop();
         if (oldImagePath) {
           const { error: storageError } = await supabase.storage
             .from('notes-images')
@@ -305,7 +287,7 @@ export default function App() {
         .insert([{
           title: encryptedTitle,
           content: encryptedContent,
-          image_url: imageUrl ? encryptedImageUrl : null,
+          image_url: imageUrlToSave,
           created_at: formattedDate,
           updated_at: formattedDate,
           user_id: user.id,
@@ -320,8 +302,9 @@ export default function App() {
     setContent(''); // Reset content
     setImage(null); // Reset image
     setEditingId(null); // Reset editing ID
+    setImageUrl(null); // Reset image URL
 
-    fetchNotes(); // Refresh notes
+    await fetchNotes(); // Refresh notes
   }
 
   const handleDelete = async (id) => {
@@ -336,7 +319,7 @@ export default function App() {
         alert('Error deleting note: ' + error.message);
       } else {
         fetchNotes(); // Refresh notes after deletion
-        alert('Note deleted successfully!');
+        // alert('Note deleted successfully!');
       }
     }
   };
@@ -433,17 +416,24 @@ export default function App() {
 
   // Render a note item
   const renderItem = (item) => {
+    const title = decryptData(item.title);
+    const content = decryptData(item.content);
+    const imageUrl = item.image_url; // Assuming the image URL is stored in this field
+
+    if (!title || !content) {
+      return null; // Skip rendering if decryption fails
+    }
+
     return (
       <div className="noteCard" key={item.id}>
-        <h3 className="noteTitle">{decryptData(item.title)}</h3>
-        <p className="noteContent">{decryptData(item.content)}</p>
-        <p className="createdAt">Created At: {item.created_at}</p>
-        <div className="noteActions">
-          <button onClick={() => handleEdit(item)}>Edit</button>
-          <button onClick={() => handleDelete(item.id)} style={{ color: 'red' }}>
-            Delete
-          </button>
-        </div>
+        <h4>{title}</h4>
+        <p>{content}</p>
+        {imageUrl && <img src={imageUrl} alt="Note related" style={{ maxWidth: '100%', height: 'auto' }} />} {/* Render the image */}
+        <p>Created At: {item.created_at}</p>
+        <button onClick={() => handleEdit(item)}>Edit</button>
+        <button onClick={() => handleDelete(item.id)} style={{ color: 'red' }}>
+          Delete
+        </button>
       </div>
     );
   };
@@ -544,13 +534,11 @@ export default function App() {
               {editingId ? 'Update Note' : 'Add Note'}
             </button>
             <button onClick={analyzeNoteContent}>Analyze Content</button>
-          </div>
-          <div className="notes-list">
-            {notes.map((item) => (
-              <div key={item.id}>
-                {renderItem(item)}
+            <div>
+              <div className="notesGrid">
+                {notes.map(renderItem)}
               </div>
-            ))}
+            </div>
           </div>
         </div>
       ) : (
