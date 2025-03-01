@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css'; // Import CSS
 import { supabase } from './supabase/supabaseClient'; 
 import imageCompression from 'browser-image-compression';
@@ -9,6 +9,9 @@ import CryptoJS from 'crypto-js'; // Import CryptoJS
 import Login from './Login'; // Import the new Login component
 import bcrypt from 'bcryptjs'; // Import bcrypt
 import PasswordReset from './PasswordReset'; // Import the PasswordReset component
+import NotesHistory from './components/NotesHistory'; // Import the NotesHistory component
+import NoteDetail from './components/NoteDetail'; // Import the NoteDetail component
+import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft } from 'react-icons/fa';
 
 const secretKey = process.env.REACT_APP_SECRET_KEY; // Get the secret key from environment variables
 
@@ -51,8 +54,13 @@ export default function App() {
   const [error, setError] = useState('');
   const [isSignUp, setIsSignUp] = useState(false); // State to toggle between login and sign-up
   const [imageUrl, setImageUrl] = useState(null); // State for the image URL
-  const [analyzeContent, setAnalyzeContent] = useState('');
   const [showPasswordReset, setShowPasswordReset] = useState(false); // New state for password reset view
+  const [showHistory, setShowHistory] = useState(false); // New state to show history view
+  const [selectedNote, setSelectedNote] = useState(null); // State for selected note in history
+  const [isCameraActive, setIsCameraActive] = useState(false); // State for camera activation
+  
+  const videoRef = useRef(null); // Reference for the video element
+  const cameraStream = useRef(null); // Reference to store camera stream
 
   useEffect(() => {
     const checkSession = async () => {
@@ -85,6 +93,10 @@ export default function App() {
           const blob = items[i].getAsFile();
           if (blob) {
             setImage(blob);
+            
+            // Create a thumbnail preview URL
+            const imageUrl = URL.createObjectURL(blob);
+            setImageUrl(imageUrl);
           }
           break;
         }
@@ -97,6 +109,13 @@ export default function App() {
     return () => {
       supabase.removeChannel(notesSubscription);
       window.removeEventListener('paste', handlePaste);
+      
+      // Clean up camera stream if active
+      if (cameraStream.current) {
+        cameraStream.current.getTracks().forEach(track => {
+          track.stop();
+        });
+      }
     };
   }, []);
 
@@ -152,11 +171,19 @@ export default function App() {
         throw new Error('The file given is not an instance of Blob or File');
       }
 
-      const fileName = `${Date.now()}_${file.name}`; // Create a unique file name
+      // Compress the image before uploading
+      const options = {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1920,
+        useWebWorker: true
+      };
+      
+      const compressedFile = await imageCompression(file, options);
+      const fileName = `${Date.now()}_${file.name || 'image.jpg'}`; // Create a unique file name
 
       const { data, error } = await supabase.storage
         .from('notes-images')
-        .upload(fileName, file, { cacheControl: '3600', upsert: false });
+        .upload(fileName, compressedFile, { cacheControl: '3600', upsert: false });
 
       if (error) {
         console.error('Supabase upload error:', error);
@@ -185,13 +212,74 @@ export default function App() {
     input.onchange = async (event) => {
       const file = event.target.files[0];
       if (file) {
-        const uploadedUrl = await uploadImage(file); // Upload the image and get the URL
-        setImageUrl(uploadedUrl); // Set the image URL in state
+        setImage(file);
+        
+        // Create a thumbnail preview URL
+        const imagePreviewUrl = URL.createObjectURL(file);
+        setImageUrl(imagePreviewUrl);
       }
     };
 
     input.click();
   }
+
+  // Activate camera to take a picture
+  const activateCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } // Use back camera if available
+      });
+      
+      cameraStream.current = stream;
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      
+      setIsCameraActive(true);
+    } catch (err) {
+      console.error('Error accessing camera:', err);
+      alert('Error accessing camera: ' + err.message);
+    }
+  };
+  
+  // Take a picture from the camera
+  const takePicture = () => {
+    if (!videoRef.current) return;
+    
+    const canvas = document.createElement('canvas');
+    const video = videoRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Convert canvas to blob
+    canvas.toBlob((blob) => {
+      if (blob) {
+        setImage(blob);
+        
+        // Create a thumbnail preview URL
+        const imageUrl = URL.createObjectURL(blob);
+        setImageUrl(imageUrl);
+        
+        // Stop camera stream
+        stopCamera();
+      }
+    }, 'image/jpeg', 0.8);
+  };
+  
+  // Stop camera
+  const stopCamera = () => {
+    if (cameraStream.current) {
+      cameraStream.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      cameraStream.current = null;
+    }
+    setIsCameraActive(false);
+  };
 
   // Function to refresh notes
   function refreshNotes() {
@@ -200,10 +288,17 @@ export default function App() {
 
   // Create or update a note
   async function saveNote() {
+    if (!title.trim()) {
+      alert('Please enter a title for your note');
+      return;
+    }
+    
     let imageUrlToSave = null;
 
-    if (imageUrl) {
-      imageUrlToSave = imageUrl; // Use the image URL from state
+    if (image instanceof Blob || image instanceof File) {
+      imageUrlToSave = await uploadImage(image);
+    } else if (imageUrl) {
+      imageUrlToSave = imageUrl;
     }
 
     const timestamp = new Date();
@@ -213,22 +308,11 @@ export default function App() {
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit',
       hour12: false,
     });
 
-    const noteData = {
-      title: title,
-      content: content,
-      image_url: imageUrlToSave,
-      created_at: formattedDate,
-      updated_at: formattedDate,
-      user_id: user.id,
-    };
-
-    const encryptedTitle = encryptData(noteData.title); // Encrypt title
-    const encryptedContent = encryptData(noteData.content); // Encrypt content
-    const encryptedImageUrl = encryptData(imageUrlToSave); // Encrypt image URL
+    const encryptedTitle = encryptData(title); // Encrypt title
+    const encryptedContent = encryptData(content); // Encrypt content
 
     if (editingId) {
       const { error } = await supabase
@@ -257,9 +341,6 @@ export default function App() {
 
           if (storageError) {
             console.error('Error deleting old image from storage', storageError.message);
-            alert('Note updated, but error deleting old image: ' + storageError.message);
-          } else {
-            console.log('Old image deleted from storage');
           }
         }
       } else if (image === null && imageUrl) {
@@ -272,9 +353,6 @@ export default function App() {
 
           if (storageError) {
             console.error('Error deleting old image from storage', storageError.message);
-            alert('Error deleting old image: ' + storageError.message);
-          } else {
-            console.log('Old image deleted from storage');
           }
         }
         // Update the image_url in the notes table to null
@@ -300,11 +378,12 @@ export default function App() {
       }
     }
 
-    setTitle(''); // Reset title
-    setContent(''); // Reset content
-    setImage(null); // Reset image
-    setEditingId(null); // Reset editing ID
-    setImageUrl(null); // Reset image URL
+    // Reset form fields
+    setTitle('');
+    setContent('');
+    setImage(null);
+    setEditingId(null);
+    setImageUrl(null);
 
     await fetchNotes(); // Refresh notes
   }
@@ -321,7 +400,6 @@ export default function App() {
         alert('Error deleting note: ' + error.message);
       } else {
         fetchNotes(); // Refresh notes after deletion
-        // alert('Note deleted successfully!');
       }
     }
   };
@@ -332,6 +410,8 @@ export default function App() {
       setTitle(decryptData(note.title)); // Set the title for editing
       setContent(decryptData(note.content)); // Set the content for editing
       setEditingId(note.id); // Set the ID of the note being edited
+      setImageUrl(note.image_url); // Set the image URL if it exists
+      setShowHistory(false); // Hide history view when editing
     }
   };
 
@@ -390,14 +470,8 @@ export default function App() {
 
         if (storageError) {
           console.error('Error deleting image from storage', storageError.message);
-          alert('Note deleted, but error deleting image: ' + storageError.message);
-        } else {
-          console.log('Image deleted from storage');
-          alert('Note and image deleted');
         }
       }
-    } else {
-      alert('Note deleted');
     }
 
     // Refresh notes without reloading
@@ -408,11 +482,10 @@ export default function App() {
   function startEdit(note) {
     const decryptedTitle = decryptData(note.title); // Decrypt title
     const decryptedContent = decryptData(note.content); // Decrypt content
-    const decryptedImageUrl = note.image_url ? decryptData(note.image_url) : null; // Decrypt image URL
 
     setTitle(decryptedTitle); // Set decrypted title
     setContent(decryptedContent); // Set decrypted content
-    setImage(decryptedImageUrl); // Set decrypted image URL
+    setImageUrl(note.image_url); // Set image URL
     setEditingId(note.id); // Set editing ID
   }
 
@@ -432,10 +505,10 @@ export default function App() {
         <p>{content}</p>
         {imageUrl && <img src={imageUrl} alt="Note related" style={{ maxWidth: '100%', height: 'auto' }} />} {/* Render the image */}
         <p>Created At: {item.created_at}</p>
-        <button onClick={() => handleEdit(item)}>Edit</button>
-        <button onClick={() => handleDelete(item.id)} style={{ color: 'red' }}>
-          Delete
-        </button>
+        <div className="note-actions">
+          <button onClick={() => handleEdit(item)} className="edit-btn">Edit</button>
+          <button onClick={() => handleDelete(item.id)} className="delete-btn">Delete</button>
+        </div>
       </div>
     );
   };
@@ -457,7 +530,6 @@ export default function App() {
     if (isMatch) {
       setUser(data); // Set the logged-in user
       await fetchNotes(); // Fetch notes for the logged-in user
-      //alert('Login successful!'); // Show success message
     } else {
       setError('Login error: Incorrect password.');
     }
@@ -494,6 +566,29 @@ export default function App() {
   // Function to fetch all previous notes when History button is clicked
   const handleHistory = async () => {
     await fetchNotes(); // Fetch all notes for the logged-in user
+    setShowHistory(true); // Show history view
+    setSelectedNote(null); // Reset selected note
+  };
+  
+  // Function to view a note from history
+  const handleViewNote = (note) => {
+    setSelectedNote(note); // Set the selected note
+  };
+  
+  // Function to go back from note detail to history
+  const handleBackToHistory = () => {
+    setSelectedNote(null); // Reset selected note
+  };
+  
+  // Function to go back from history to main dashboard
+  const handleBackToDashboard = () => {
+    setShowHistory(false); // Hide history view
+  };
+  
+  // Clear image from form
+  const handleClearImage = () => {
+    setImage(null);
+    setImageUrl(null);
   };
 
   return (
@@ -502,45 +597,107 @@ export default function App() {
         <div className="dashboard">
           <div className="sidebar">
             <h2>Welcome {user.username}</h2>
-            <button className="history-button" onClick={handleHistory}>History</button>
-            <button>Notes 1</button>
-            <button>Notes 2</button>
-            <button>Notes 3</button>
-            <button className="logout-button" onClick={handleLogout}>Logout</button>
+            <button className="sidebar-btn history-button" onClick={handleHistory}>
+              <FaHistory /> History
+            </button>
+            <button className="sidebar-btn logout-button" onClick={handleLogout}>
+              <FaSignOutAlt /> Logout
+            </button>
           </div>
           <div className="main-content">
-            <h3>Add a New Note</h3>
-            <input
-              type="text"
-              placeholder="Title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            <textarea
-              placeholder="Content"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-            />
-            <div className="buttonRow">
-              <button onClick={pickImage}>Pick Image</button>
-              {image && image instanceof Blob && (
-                <img src={URL.createObjectURL(image)} alt="Preview" className="previewImage" />
-              )}
-              {editingId && image && (
-                <button onClick={() => setImage(null)} style={{ color: 'red' }}>
-                  Delete Image
-                </button>
-              )}
-            </div>
-            <button onClick={saveNote}>
-              {editingId ? 'Update Note' : 'Add Note'}
-            </button>
-            <button onClick={analyzeNoteContent}>Analyze Content</button>
-            <div>
-              <div className="notesGrid">
-                {notes.map(renderItem)}
-              </div>
-            </div>
+            {showHistory ? (
+              selectedNote ? (
+                <NoteDetail 
+                  note={selectedNote} 
+                  onBack={handleBackToHistory}
+                  decryptData={decryptData}
+                />
+              ) : (
+                <>
+                  <button className="back-to-dashboard" onClick={handleBackToDashboard}>
+                    <FaArrowLeft /> Back to Dashboard
+                  </button>
+                  <NotesHistory 
+                    notes={notes} 
+                    onViewNote={handleViewNote}
+                    decryptData={decryptData}
+                  />
+                </>
+              )
+            ) : (
+              <>
+                <h3>Add a New Note</h3>
+                <div className="note-form">
+                  <input
+                    type="text"
+                    placeholder="Title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="note-input"
+                  />
+                  <textarea
+                    placeholder="Content (You can paste images directly here)"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    className="note-textarea"
+                  />
+                  
+                  {isCameraActive ? (
+                    <div className="camera-container">
+                      <video 
+                        ref={videoRef} 
+                        autoPlay 
+                        playsInline 
+                        className="camera-preview"
+                      />
+                      <div className="camera-controls">
+                        <button onClick={takePicture} className="take-photo-btn">Take Photo</button>
+                        <button onClick={stopCamera} className="cancel-btn">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="image-preview-container">
+                        {imageUrl && (
+                          <div className="image-preview-wrapper">
+                            <img 
+                              src={imageUrl} 
+                              alt="Preview" 
+                              className="image-preview" 
+                            />
+                            <button 
+                              onClick={handleClearImage} 
+                              className="clear-image-btn"
+                            >
+                              <FaTimes />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="button-row">
+                        <button onClick={pickImage} className="action-btn">
+                          <FaImage /> Pick Image
+                        </button>
+                        <button onClick={activateCamera} className="action-btn">
+                          <FaCamera /> Take Photo
+                        </button>
+                        <button onClick={saveNote} className="save-btn">
+                          <FaSave /> {editingId ? 'Update Note' : 'Add Note'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                <div className="notes-container">
+                  <h3>Your Notes</h3>
+                  <div className="notesGrid">
+                    {notes.map(renderItem)}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : (
