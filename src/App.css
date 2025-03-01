@@ -281,3 +281,23 @@ button:hover {
 .noteCard button:hover {
   opacity: 0.8;
 }
+
+/* Forgot Password Link Styles */
+.forgot-password {
+  text-align: center;
+  margin-top: 10px;
+}
+
+.forgot-password-link {
+  background: none;
+  border: none;
+  color: #4285f4;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+}
+
+.forgot-password-link:hover {
+  color: #3367d6;
+}

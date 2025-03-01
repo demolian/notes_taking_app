@@ -8,6 +8,7 @@ import ImageModal from './ImageModal'; // Import the ImageModal
 import CryptoJS from 'crypto-js'; // Import CryptoJS
 import Login from './Login'; // Import the new Login component
 import bcrypt from 'bcryptjs'; // Import bcrypt
+import PasswordReset from './PasswordReset'; // Import the PasswordReset component
 
 const secretKey = process.env.REACT_APP_SECRET_KEY; // Get the secret key from environment variables
 
@@ -51,6 +52,7 @@ export default function App() {
   const [isSignUp, setIsSignUp] = useState(false); // State to toggle between login and sign-up
   const [imageUrl, setImageUrl] = useState(null); // State for the image URL
   const [analyzeContent, setAnalyzeContent] = useState('');
+  const [showPasswordReset, setShowPasswordReset] = useState(false); // New state for password reset view
 
   useEffect(() => {
     const checkSession = async () => {
@@ -542,31 +544,45 @@ export default function App() {
           </div>
         </div>
       ) : (
-        <div className="login-form">
-          <h2>{isSignUp ? 'Sign Up' : 'Login'}</h2>
-          <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <button onClick={isSignUp ? handleSignUp : handleLogin}>
-            {isSignUp ? 'Sign Up' : 'Login'}
-          </button>
-          {error && <p className="error">{error}</p>}
-          <p>
-            {isSignUp ? 'Already have an account?' : "Don't have an account?"}
-            <button onClick={() => setIsSignUp(!isSignUp)}>
-              {isSignUp ? 'Login' : 'Sign Up'}
+        showPasswordReset ? (
+          <PasswordReset onBack={() => setShowPasswordReset(false)} />
+        ) : (
+          <div className="login-form">
+            <h2>{isSignUp ? 'Sign Up' : 'Login'}</h2>
+            <input
+              type="text"
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button onClick={isSignUp ? handleSignUp : handleLogin}>
+              {isSignUp ? 'Sign Up' : 'Login'}
             </button>
-          </p>
-        </div>
+            {error && <p className="error">{error}</p>}
+            <p>
+              {isSignUp ? 'Already have an account?' : "Don't have an account?"}
+              <button onClick={() => setIsSignUp(!isSignUp)}>
+                {isSignUp ? 'Login' : 'Sign Up'}
+              </button>
+            </p>
+            {!isSignUp && (
+              <p className="forgot-password">
+                <button 
+                  className="forgot-password-link"
+                  onClick={() => setShowPasswordReset(true)}
+                >
+                  Forgot Password?
+                </button>
+              </p>
+            )}
+          </div>
+        )
       )}
       {showModal && (
         <PasswordModal
