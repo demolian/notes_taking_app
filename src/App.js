@@ -5,22 +5,6 @@ import imageCompression from 'browser-image-compression';
 import axios from 'axios';
 import PasswordModal from './PasswordModal'; // Correct import
 import ImageModal from './ImageModal'; // Import the ImageModal
-import CryptoJS from 'crypto-js'; // Import CryptoJS
-import Login from './Login'; // Import the new Login component
-import bcrypt from 'bcryptjs'; // Import bcrypt
-
-const secretKey = process.env.REACT_APP_SECRET_KEY; // Get the secret key from environment variables
-
-// Function to encrypt data
-function encryptData(data) {
-  return CryptoJS.AES.encrypt(data, secretKey).toString();
-}
-
-// Function to decrypt data
-function decryptData(ciphertext) {
-  const bytes = CryptoJS.AES.decrypt(ciphertext, secretKey);
-  return bytes.toString(CryptoJS.enc.Utf8);
-}
 
 export default function App() {
   const [user, setUser] = useState(null); // New state to track the logged-in user
@@ -28,16 +12,13 @@ export default function App() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [image, setImage] = useState(null);
+  const [voiceUrl, setVoiceUrl] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState(null);
   const [actionType, setActionType] = useState(''); // New state to track action type
   const [noteToEdit, setNoteToEdit] = useState(null);
   const [fullImageUrl, setFullImageUrl] = useState(null); // State for full-screen image
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false); // State to toggle between login and sign-up
 
   useEffect(() => {
     const checkSession = async () => {
@@ -59,7 +40,6 @@ export default function App() {
     const notesSubscription = supabase
       .channel('public:notes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, payload => {
-        console.log('Change received!', payload);
         fetchNotes(); // Refresh notes on any change
       })
       .subscribe();
@@ -213,26 +193,18 @@ export default function App() {
         alert('Error getting existing note: ' + existingNoteError.message);
         return;
       }
-      oldImageUrl = existingNote?.image_url; // Store the old image URL
+      oldImageUrl = existingNote?.image_url;
     }
 
     // Only upload a new image if one is provided
     if (image) {
-      // Check if the image is a valid Blob or File
-      if (image instanceof Blob || image instanceof File) {
-        const uploadedUrl = await uploadImage(image);
-        if (uploadedUrl) {
-          imageUrl = uploadedUrl; // Use the new image URL if uploaded
-        } else {
-          alert('Error: Failed to upload image.');
-          return;
-        }
+      const uploadedUrl = await uploadImage(image);
+      if (uploadedUrl) {
+        imageUrl = uploadedUrl;
       } else {
-        alert('Error: The file given is not an instance of Blob or File.');
+        alert('Error: Failed to upload image.');
         return;
       }
-    } else {
-      imageUrl = oldImageUrl; // Keep the old image URL if no new image is provided
     }
 
     const timestamp = new Date();
@@ -246,18 +218,13 @@ export default function App() {
       hour12: false,
     });
 
-    // Encrypt title, content, and image URL before saving
-    const encryptedTitle = encryptData(title); // Encrypt title
-    const encryptedContent = encryptData(content); // Encrypt content
-    const encryptedImageUrl = encryptData(imageUrl); // Encrypt image URL
-
     if (editingId) {
       const { error } = await supabase
         .from('notes')
         .update({
-          title: encryptedTitle,
-          content: encryptedContent,
-          image_url: imageUrl ? encryptedImageUrl : null,
+          title,
+          content,
+          image_url: imageUrl,
           updated_at: timestamp.toISOString(),
           user_id: user.id,
         })
@@ -268,8 +235,7 @@ export default function App() {
         return;
       }
 
-      // Handle old image deletion if a new image is uploaded
-      if (image && oldImageUrl && imageUrl !== oldImageUrl) {
+      if (oldImageUrl && imageUrl !== oldImageUrl) {
         const oldImagePath = oldImageUrl.split('/').pop();
         if (oldImagePath) {
           const { error: storageError } = await supabase.storage
@@ -283,62 +249,54 @@ export default function App() {
             console.log('Old image deleted from storage');
           }
         }
-      } else if (image === null && oldImageUrl) {
-        // If the image is deleted, remove it from storage
-        const oldImagePath = oldImageUrl.split('/').pop();
-        if (oldImagePath) {
-          const { error: storageError } = await supabase.storage
-            .from('notes-images')
-            .remove([oldImagePath]);
-
-          if (storageError) {
-            console.error('Error deleting old image from storage', storageError.message);
-            alert('Error deleting old image: ' + storageError.message);
-          } else {
-            console.log('Old image deleted from storage');
-          }
-        }
-        // Update the image_url in the notes table to null
-        await supabase
-          .from('notes')
-          .update({ image_url: null })
-          .eq('id', editingId);
       }
     } else {
       const { error } = await supabase
         .from('notes')
-        .insert([{
-          title: encryptedTitle,
-          content: encryptedContent,
-          image_url: imageUrl ? encryptedImageUrl : null,
-          created_at: formattedDate,
-          updated_at: formattedDate,
-          user_id: user.id,
-        }]);
-      if (error) {
-        alert('Error creating note: ' + error.message);
-        return;
+        .insert([
+          {
+            title,
+            content,
+            image_url: imageUrl,
+            created_at: formattedDate,
+            updated_at: timestamp.toISOString(),
+          },
+        ]);
+      if (error) alert('Error creating note: ' + error.message);
+      else {
+        alert('Note created');
       }
     }
 
-    setTitle(''); // Reset title
-    setContent(''); // Reset content
-    setImage(null); // Reset image
-    setEditingId(null); // Reset editing ID
+    setTitle('');
+    setContent('');
+    setImage(null);
+    setEditingId(null);
 
     fetchNotes(); // Refresh notes
   }
 
-  const handleDelete = (id) => {
-    setNoteToDelete(id);
-    setActionType('delete');
-    setShowModal(true);
+  const handleEdit = (note) => {
+    setEditingId(note.id);
   };
 
-  const handleEdit = (note) => {
-    setNoteToEdit(note);
-    setActionType('edit');
-    setShowModal(true);
+  const handleDelete = (id) => {
+    setNoteToDelete(id);
+    setShowConfirmation(true); // Show confirmation modal
+  };
+
+  const confirmDelete = async () => {
+    const { error } = await supabase
+      .from('notes')
+      .delete()
+      .eq('id', noteToDelete);
+    if (error) {
+      alert('Error deleting note: ' + error.message);
+    } else {
+      alert('Note deleted');
+      fetchNotes(); // Refresh notes after deletion
+    }
+    setShowConfirmation(false); // Close confirmation modal
   };
 
   const confirmAction = async (password) => {
@@ -412,166 +370,76 @@ export default function App() {
 
   // Start editing a note
   function startEdit(note) {
-    const decryptedTitle = decryptData(note.title); // Decrypt title
-    const decryptedContent = decryptData(note.content); // Decrypt content
-    const decryptedImageUrl = note.image_url ? decryptData(note.image_url) : null; // Decrypt image URL
-
-    setTitle(decryptedTitle); // Set decrypted title
-    setContent(decryptedContent); // Set decrypted content
-    setImage(decryptedImageUrl); // Set decrypted image URL
-    setEditingId(note.id); // Set editing ID
+    setTitle(note.title);
+    setContent(note.content);
+    setImage(note.image_url);
+    setEditingId(note.id);
   }
 
-  // Render a note item
-  const renderItem = (item) => {
-    return (
-      <div className="noteCard" key={item.id}>
-        <h3 className="noteTitle">{decryptData(item.title)}</h3>
-        <p className="noteContent">{decryptData(item.content)}</p>
+  const renderItem = (item) => (
+    <div className="noteCard">
+      <h3 className="noteTitle">{item.title}</h3>
+      <p className="noteContent">
+        {item.content.split('\n').map((line, index) => (
+          <React.Fragment key={index}>
+            {line}
+            <br />
+          </React.Fragment>
+        ))}
+      </p>
+      {item.image_url ? (
+        <img
+          src={item.image_url}
+          alt="Note Image"
+          className="noteImage"
+          onClick={() => setFullImageUrl(item.image_url)}
+        />
+      ) : null}
+      <div className="noteActions">
+        <button onClick={() => handleEdit(item)}>Edit</button>
         <p className="createdAt">Created At: {item.created_at}</p>
-        <div className="noteActions">
-          <button onClick={() => handleEdit(item)}>Edit</button>
-          <button onClick={() => handleDelete(item.id)} style={{ color: 'red' }}>
-            Delete
-          </button>
-        </div>
+        <button onClick={() => handleDelete(item.id)} style={{ color: 'red' }}>
+          Delete
+        </button>
       </div>
-    );
-  };
-
-  // Function to handle user login
-  const handleLogin = async () => {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
-      .single();
-
-    if (error || !data) {
-      setError('Login error: User not found. Please sign up.');
-      return;
-    }
-
-    const isMatch = await bcrypt.compare(password, data.password);
-    if (isMatch) {
-      setUser(data); // Set the logged-in user
-      await fetchNotes(); // Fetch notes for the logged-in user
-      alert('Login successful!'); // Show success message
-    } else {
-      setError('Login error: Incorrect password.');
-    }
-  };
-
-  // Function to handle user sign-up
-  const handleSignUp = async () => {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const { data, error } = await supabase
-      .from('users')
-      .insert([{ email, password: hashedPassword }]);
-
-    if (error) {
-      setError('Sign-up error: ' + error.message);
-      return; // Exit if there's an error
-    }
-
-    // Check if data is returned and set the user
-    if (data && data.length > 0) {
-      setUser(data[0]); // Set the logged-in user
-      await fetchNotes(); // Fetch notes for the new user
-      alert('Sign-up successful!'); // Show success message
-    } else {
-      setError('Sign-up error: No user data returned.');
-    }
-  };
-
-  // Function to handle user logout
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setUser(null); // Clear user state
-    setNotes([]); // Clear notes
-  };
-
-  // Function to fetch all previous notes when History button is clicked
-  const handleHistory = async () => {
-    await fetchNotes(); // Fetch all notes for the logged-in user
-  };
+    </div>
+  );
 
   return (
     <div className="container">
-      {user ? (
-        <div className="dashboard">
-          <div className="sidebar">
-            <h2>Welcome {user.email}</h2>
-            <button onClick={handleHistory}>History</button>
-            <button>Notes 1</button>
-            <button>Notes 2</button>
-            <button>Notes 3</button>
-            <button onClick={handleLogout}>Logout</button>
-          </div>
-          <div className="main-content">
-            <h3>Add a New Note</h3>
-            <input
-              type="text"
-              placeholder="Title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            <textarea
-              placeholder="Content"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-            />
-            <div className="buttonRow">
-              <button onClick={pickImage}>Pick Image</button>
-              {image && image instanceof Blob && (
-                <img src={URL.createObjectURL(image)} alt="Preview" className="previewImage" />
-              )}
-              {editingId && image && (
-                <button onClick={() => setImage(null)} style={{ color: 'red' }}>
-                  Delete Image
-                </button>
-              )}
-            </div>
-            <button onClick={saveNote}>
-              {editingId ? 'Update Note' : 'Add Note'}
-            </button>
-            <button onClick={analyzeNoteContent}>Analyze Content</button>
-          </div>
-          <div className="notes-list">
-            {notes.map((item) => (
-              <div key={item.id}>
-                {renderItem(item)}
-              </div>
-            ))}
-          </div>
+      <h1 className="header">Notes</h1>
+      <div className="form">
+        <input
+          type="text"
+          className="input"
+          placeholder="Title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <textarea
+          className="input multiline"
+          placeholder="Content"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+        />
+        <div className="buttonRow">
+          <button onClick={pickImage}>Pick Image</button>
+          {image && image instanceof Blob && (
+            <img src={URL.createObjectURL(image)} alt="Preview" className="previewImage" />
+          )}
         </div>
-      ) : (
-        <div className="login-form">
-          <h2>{isSignUp ? 'Sign Up' : 'Login'}</h2>
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <button onClick={isSignUp ? handleSignUp : handleLogin}>
-            {isSignUp ? 'Sign Up' : 'Login'}
-          </button>
-          {error && <p className="error">{error}</p>}
-          <p>
-            {isSignUp ? 'Already have an account?' : "Don't have an account?"}
-            <button onClick={() => setIsSignUp(!isSignUp)}>
-              {isSignUp ? 'Login' : 'Sign Up'}
-            </button>
-          </p>
-        </div>
-      )}
+        <button onClick={saveNote}>
+          {editingId ? 'Update Note' : 'Add Note'}
+        </button>
+        <button onClick={analyzeNoteContent}>Analyze Content</button>
+      </div>
+      <div className="notesList">
+        {notes.map((item) => (
+          <div key={item.id}>
+            {renderItem(item)}
+          </div>
+        ))}
+      </div>
       {showModal && (
         <PasswordModal
           onConfirm={confirmAction}

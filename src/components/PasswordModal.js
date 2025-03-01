@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import './PasswordModal.css'; // Optional: Create a CSS file for styling
+import '../PasswordModal.css'; // Optional: Create a CSS file for styling
 
 export default function PasswordModal({ onConfirm, onCancel }) {
   const [password, setPassword] = useState('');
