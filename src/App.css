@@ -156,7 +156,7 @@ button:hover {
   width: 100%;
   margin: 10px 0;
   padding: 10px;
-  background-color: yellow; /* Change as needed */
+  background-color: ''; /* Change as needed */
   border: none;
   cursor: pointer;
 }
@@ -198,4 +198,34 @@ button {
 
 button:hover {
   opacity: 0.8;
+}
+
+/* Styles for the Logout button */
+.logout-button {
+  background-color: red; /* Red background */
+  color: black; /* White text */
+  padding: 10px 15px; /* Padding for the button */
+  border: none; /* Remove default border */
+  border-radius: 5px; /* Rounded corners */
+  cursor: pointer; /* Pointer cursor on hover */
+  margin: 10px 0; /* Margin for spacing */
+}
+
+.logout-button:hover {
+  opacity: 0.8; /* Slightly fade button on hover */
+}
+
+/* Styles for the History button */
+.history-button {
+  background-color: greenyellow; /* Light green background */
+  color: black; /* Black text */
+  padding: 10px 15px; /* Padding for the button */
+  border: none; /* Remove default border */
+  border-radius: 5px; /* Rounded corners */
+  cursor: pointer; /* Pointer cursor on hover */
+  margin: 10px 0; /* Margin for spacing */
+}
+
+.history-button:hover {
+  opacity: 0.8; /* Slightly fade button on hover */
 }

@@ -324,16 +324,30 @@ export default function App() {
     fetchNotes(); // Refresh notes
   }
 
-  const handleDelete = (id) => {
-    setNoteToDelete(id);
-    setActionType('delete');
-    setShowModal(true);
+  const handleDelete = async (id) => {
+    const confirmDelete = window.confirm("Are you sure you want to delete this note?");
+    if (confirmDelete) {
+      const { error } = await supabase
+        .from('notes')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        alert('Error deleting note: ' + error.message);
+      } else {
+        fetchNotes(); // Refresh notes after deletion
+        alert('Note deleted successfully!');
+      }
+    }
   };
 
   const handleEdit = (note) => {
-    setNoteToEdit(note);
-    setActionType('edit');
-    setShowModal(true);
+    const confirmEdit = window.confirm("Are you sure you want to edit this note?");
+    if (confirmEdit) {
+      setTitle(decryptData(note.title)); // Set the title for editing
+      setContent(decryptData(note.content)); // Set the content for editing
+      setEditingId(note.id); // Set the ID of the note being edited
+    }
   };
 
   const confirmAction = async (password) => {
@@ -451,7 +465,7 @@ export default function App() {
     if (isMatch) {
       setUser(data); // Set the logged-in user
       await fetchNotes(); // Fetch notes for the logged-in user
-      alert('Login successful!'); // Show success message
+      //alert('Login successful!'); // Show success message
     } else {
       setError('Login error: Incorrect password.');
     }
@@ -496,11 +510,11 @@ export default function App() {
         <div className="dashboard">
           <div className="sidebar">
             <h2>Welcome {user.username}</h2>
-            <button onClick={handleHistory}>History</button>
+            <button className="history-button" onClick={handleHistory}>History</button>
             <button>Notes 1</button>
             <button>Notes 2</button>
             <button>Notes 3</button>
-            <button onClick={handleLogout}>Logout</button>
+            <button className="logout-button" onClick={handleLogout}>Logout</button>
           </div>
           <div className="main-content">
             <h3>Add a New Note</h3>
