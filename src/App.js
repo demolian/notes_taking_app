@@ -47,8 +47,7 @@ export default function App() {
       } else {
         setUser(session?.user || null);
         if (session?.user) {
-          fetchNotes(); // Fetch notes if a session exists
-          console.log("User session found:", session.user.username);
+          fetchNotes(); 
         }
       }
     };
@@ -59,7 +58,6 @@ export default function App() {
     const notesSubscription = supabase
       .channel('public:notes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, payload => {
-        console.log('Change received!', payload);
         fetchNotes(); // Refresh notes on any change
       })
       .subscribe();
@@ -90,7 +88,6 @@ export default function App() {
   // Fetch notes from Supabase
   async function fetchNotes() {
     if (!user) return; // Only fetch notes if a user is logged in
-    console.log('Fetching notes for user ID:', user.id); // Log the user ID being used to fetch notes
     const { data, error } = await supabase
       .from('notes')
       .select('*')
@@ -100,7 +97,6 @@ export default function App() {
     if (error) {
       alert('Error fetching notes: ' + error.message); // Use alert for web
     } else if (data) {
-      console.log('Fetched notes:', data); // Log the fetched notes
       setNotes(data); // Set the notes state
     }
   }
@@ -129,7 +125,6 @@ export default function App() {
   async function analyzeNoteContent() {
     if (content) {
       const analysis = await callGeminiAI(content);
-      console.log('Analysis Result:', analysis);
     }
   }
 
