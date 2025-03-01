@@ -34,7 +34,7 @@ export default function App() {
   const [actionType, setActionType] = useState(''); // New state to track action type
   const [noteToEdit, setNoteToEdit] = useState(null);
   const [fullImageUrl, setFullImageUrl] = useState(null); // State for full-screen image
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSignUp, setIsSignUp] = useState(false); // State to toggle between login and sign-up
@@ -48,7 +48,7 @@ export default function App() {
         setUser(session?.user || null);
         if (session?.user) {
           fetchNotes(); // Fetch notes if a session exists
-          console.log("User session found:", session.user.email);
+          console.log("User session found:", session.user.username);
         }
       }
     };
@@ -444,7 +444,7 @@ export default function App() {
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .eq('email', email)
+      .eq('username', username)
       .single();
 
     if (error || !data) {
@@ -467,14 +467,13 @@ export default function App() {
     const hashedPassword = await bcrypt.hash(password, 10);
     const { data, error } = await supabase
       .from('users')
-      .insert([{ email, password: hashedPassword }]);
+      .insert([{ username, password: hashedPassword }]);
 
     if (error) {
       setError('Sign-up error: ' + error.message);
       return; // Exit if there's an error
     }
 
-    // Check if data is returned and set the user
     if (data && data.length > 0) {
       setUser(data[0]); // Set the logged-in user
       await fetchNotes(); // Fetch notes for the new user
@@ -501,7 +500,7 @@ export default function App() {
       {user ? (
         <div className="dashboard">
           <div className="sidebar">
-            <h2>Welcome {user.email}</h2>
+            <h2>Welcome {user.username}</h2>
             <button onClick={handleHistory}>History</button>
             <button>Notes 1</button>
             <button>Notes 2</button>
@@ -549,10 +548,10 @@ export default function App() {
         <div className="login-form">
           <h2>{isSignUp ? 'Sign Up' : 'Login'}</h2>
           <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            type="text"
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
           />
           <input
             type="password"
