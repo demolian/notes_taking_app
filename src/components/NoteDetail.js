@@ -21,7 +21,7 @@ const NoteDetail = ({ note, onBack, decryptData }) => {
       </div>
       
       <div className="note-detail-content">
-        <p>{content}</p>
+        <div className="note-content" dangerouslySetInnerHTML={{ __html: content }}></div>
         
         {imageUrl && (
           <div className="note-image-container">
