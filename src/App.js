@@ -1541,17 +1541,19 @@ export default function App() {
   // Function to fetch user's backups
   const fetchBackups = async () => {
     try {
-      // Check if user is logged in
-      if (!user || !user.id) {
-        console.log("No user logged in, skipping backup fetch");
+      // Get the current session to ensure we have the latest user info
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session || !session.user || !session.user.id) {
+        // console.log("No authenticated session found, skipping backup fetch");
         return;
       }
-
-      // Fetch backups
+      
+      // Use the session user ID directly from Supabase Auth
       const { data, error } = await supabase
         .from('note_backups')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', session.user.id)
         .eq('is_deleted', false)
         .order('backup_date', { ascending: false });
 
@@ -1561,6 +1563,9 @@ export default function App() {
       }
 
       setBackupList(data || []);
+      
+      // Log for debugging
+      // console.log(`Fetched ${data?.length || 0} backups for user ${session.user.id}`);
     } catch (err) {
       console.error("Error fetching backups:", err);
     }
@@ -1922,7 +1927,7 @@ export default function App() {
           try {
             const urlParts = note.image_url.split('/');
             const imagePath = urlParts[urlParts.length - 1];
-            console.log("imagePath1", imagePath);
+            // console.log("imagePath1", imagePath);
             
             if (imagePath && !allImagesToDelete.includes(imagePath)) {
               allImagesToDelete.push(imagePath);
@@ -1952,7 +1957,7 @@ export default function App() {
               if (imgSrc && imgSrc.includes('storage.supabaseusercontent')) {
                 const urlParts = imgSrc.split('/');
                 const imagePath = urlParts[urlParts.length - 1];
-                console.log("imagePath", imagePath);
+                // console.log("imagePath", imagePath);
                 
                 if (imagePath && !allImagesToDelete.includes(imagePath)) {
                   allImagesToDelete.push(imagePath);
@@ -1987,7 +1992,7 @@ export default function App() {
           if (storageError) {
             console.error('Error deleting images from storage:', storageError);
           } else {
-            console.log(`${allImagesToDelete.length} images deleted from storage`);
+            // console.log(`${allImagesToDelete.length} images deleted from storage`);
           }
         } catch (err) {
           console.error('Error during batch image deletion:', err);
