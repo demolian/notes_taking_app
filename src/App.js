@@ -90,7 +90,7 @@ export default function App() {
           // console.log('Active Supabase Auth session found with ID:', session.user.id);
           authUser = session.user;
         }
-      } catch (sessionErr) {
+      } catch (sessionErr) { 
         console.error('Error checking auth session:', sessionErr);
       }
       
@@ -306,7 +306,7 @@ export default function App() {
       .from('notes')
       .select('*')
       .eq('user_id', authUserId) // Use the auth user ID to filter notes
-      .order('created_at', { ascending: false }); // Order by creation date
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching notes:', error);
@@ -841,16 +841,7 @@ export default function App() {
   const handleDelete = async (id) => {
     const confirmDelete = window.confirm("Are you sure you want to delete this note?");
     if (confirmDelete) {
-      const { error } = await supabase
-        .from('notes')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        alert('Error deleting note: ' + error.message);
-      } else {
-        fetchNotes(); // Refresh notes after deletion
-      }
+      await deleteNote(id);
     }
   };
 
@@ -886,10 +877,10 @@ export default function App() {
   // Delete a note
   async function deleteNote(id) {
     try {
-      // Get the note to retrieve the image URL
+      // Get the note to retrieve the image URL and content
       const { data: noteData, error: noteError } = await supabase
         .from('notes')
-        .select('image_url')
+        .select('image_url, content')
         .eq('id', id)
         .single();
 
@@ -899,6 +890,54 @@ export default function App() {
       }
 
       const imageUrl = noteData?.image_url;
+      const noteContent = noteData?.content;
+      let imagesToDelete = [];
+
+      // Add attached image to deletion list if it exists
+      if (imageUrl && imageUrl.includes('storage.supabaseusercontent')) {
+        try {
+          // Extract the file path from the URL
+          const urlParts = imageUrl.split('/');
+          const imagePath = urlParts[urlParts.length - 1];
+          
+          if (imagePath) {
+            imagesToDelete.push(imagePath);
+          }
+        } catch (err) {
+          console.error('Error processing attached image path:', err);
+        }
+      }
+
+      // Extract and add embedded images from content to deletion list
+      if (noteContent) {
+        try {
+          // Decrypt the content to get the HTML
+          const decryptedContent = decryptData(noteContent);
+          
+          // Create a temp div to parse HTML
+          const div = document.createElement('div');
+          div.innerHTML = decryptedContent;
+          
+          // Find all images in the content
+          const contentImages = div.querySelectorAll('img');
+          
+          for (let i = 0; i < contentImages.length; i++) {
+            const imgElement = contentImages[i];
+            const imgSrc = imgElement.src;
+            
+            if (imgSrc && imgSrc.includes('storage.supabaseusercontent')) {
+              const urlParts = imgSrc.split('/');
+              const imagePath = urlParts[urlParts.length - 1];
+              
+              if (imagePath && !imagesToDelete.includes(imagePath)) {
+                imagesToDelete.push(imagePath);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error extracting embedded images from content:', err);
+        }
+      }
 
       // Delete the note
       const { error } = await supabase
@@ -911,24 +950,17 @@ export default function App() {
         return;
       }
 
-      // Delete the image from storage if it exists
-      if (imageUrl && imageUrl.includes('storage.supabaseusercontent')) {
+      // Delete the images from storage if any exist
+      if (imagesToDelete.length > 0) {
         try {
-          // Extract the file path from the URL
-          const urlParts = imageUrl.split('/');
-          const imagePath = urlParts[urlParts.length - 1];
-          
-          if (imagePath) {
-            // console.log('Attempting to delete image:', imagePath);
-            const { error: storageError } = await supabase.storage
-              .from('notes-images')
-              .remove([imagePath]);
+          const { error: storageError } = await supabase.storage
+            .from('notes-images')
+            .remove(imagesToDelete);
 
-            if (storageError) {
-              console.error('Error deleting image from storage:', storageError);
-            } else {
-              // console.log('Image deleted successfully from storage');
-            }
+          if (storageError) {
+            console.error('Error deleting images from storage:', storageError);
+          } else {
+            console.log(`${imagesToDelete.length} images deleted from storage`);
           }
         } catch (err) {
           console.error('Error processing image deletion:', err);
@@ -1874,6 +1906,114 @@ export default function App() {
     }
   };
 
+  // Handle deleting multiple notes at once
+  const handleDeleteMultiple = async (noteIds) => {
+    if (!noteIds || noteIds.length === 0) {
+      alert('No notes selected for deletion');
+      return;
+    }
+    
+    try {
+      // Get data for all selected notes to extract image URLs
+      const { data: notesData, error: fetchError } = await supabase
+        .from('notes')
+        .select('id, image_url, content')
+        .in('id', noteIds);
+        
+      if (fetchError) {
+        console.error('Error fetching notes for deletion:', fetchError);
+        alert('Error preparing notes for deletion');
+        return;
+      }
+      
+      // Process all notes to extract images
+      let allImagesToDelete = [];
+      
+      for (let note of notesData) {
+        // Extract attached image
+        if (note.image_url && note.image_url.includes('storage.supabaseusercontent')) {
+          try {
+            const urlParts = note.image_url.split('/');
+            const imagePath = urlParts[urlParts.length - 1];
+            
+            if (imagePath && !allImagesToDelete.includes(imagePath)) {
+              allImagesToDelete.push(imagePath);
+            }
+          } catch (err) {
+            console.error('Error processing attached image path:', err);
+          }
+        }
+        
+        // Extract embedded images from content
+        if (note.content) {
+          try {
+            // Decrypt the content to get the HTML
+            const decryptedContent = decryptData(note.content);
+            
+            // Create a temp div to parse HTML
+            const div = document.createElement('div');
+            div.innerHTML = decryptedContent;
+            
+            // Find all images in the content
+            const contentImages = div.querySelectorAll('img');
+            
+            for (let i = 0; i < contentImages.length; i++) {
+              const imgElement = contentImages[i];
+              const imgSrc = imgElement.src;
+              
+              if (imgSrc && imgSrc.includes('storage.supabaseusercontent')) {
+                const urlParts = imgSrc.split('/');
+                const imagePath = urlParts[urlParts.length - 1];
+                
+                if (imagePath && !allImagesToDelete.includes(imagePath)) {
+                  allImagesToDelete.push(imagePath);
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Error extracting embedded images from content:', err);
+          }
+        }
+      }
+      
+      // Delete all selected notes
+      const { error: deleteError } = await supabase
+        .from('notes')
+        .delete()
+        .in('id', noteIds);
+        
+      if (deleteError) {
+        console.error('Error deleting multiple notes:', deleteError);
+        alert('Error deleting notes: ' + deleteError.message);
+        return;
+      }
+      
+      // Delete all associated images
+      if (allImagesToDelete.length > 0) {
+        try {
+          const { error: storageError } = await supabase.storage
+            .from('notes-images')
+            .remove(allImagesToDelete);
+            
+          if (storageError) {
+            console.error('Error deleting images from storage:', storageError);
+          } else {
+            console.log(`${allImagesToDelete.length} images deleted from storage`);
+          }
+        } catch (err) {
+          console.error('Error during batch image deletion:', err);
+        }
+      }
+      
+      // Refresh notes
+      alert(`Successfully deleted ${noteIds.length} notes and ${allImagesToDelete.length} associated images`);
+      fetchNotes();
+    } catch (err) {
+      console.error('Error in handleDeleteMultiple:', err);
+      alert('An error occurred while deleting notes');
+    }
+  };
+
   return (
     <div className="container">
       {user ? (
@@ -1930,6 +2070,7 @@ export default function App() {
                     onViewNote={handleViewNote}
                     onEditNote={handleEdit}
                     onDeleteNote={handleDelete}
+                    onDeleteMultiple={handleDeleteMultiple}
                     decryptData={decryptData}
                   />
                 </>
