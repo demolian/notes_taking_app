@@ -78,71 +78,91 @@ export default function App() {
 
   useEffect(() => {
     const checkSession = async () => {
-      // First check local storage for persisted user
-      const persistedUser = localStorage.getItem('user');
+      // First check if we have an active Supabase Auth session
+      let authUser = null;
+      let customUser = null;
       
-      if (persistedUser) {
-        try {
-          const userData = JSON.parse(persistedUser);
-          setUser(userData);
-          
-          // Load backup preferences from user_preferences table
-          const { data: userPrefs, error: prefsError } = await supabase
-            .from('user_preferences')
-            .select('backup_enabled')
-            .eq('id', userData.id)
-            .single();
-            
-          if (!prefsError && userPrefs) {
-            setBackupEnabled(userPrefs.backup_enabled || false);
-          } else if (prefsError) {
-            console.error('Error loading user preferences:', prefsError);
-            // Create preference record if it doesn't exist
-            await supabase
-              .from('user_preferences')
-              .insert([{ id: userData.id, backup_enabled: false }])
-              .single();
-          }
-          
-          // Fetch notes and backups
-          fetchNotes(); 
-          fetchBackups();
-          return; // Exit early if we have a persisted user
-        } catch (err) {
-          console.error('Error parsing persisted user:', err);
-          localStorage.removeItem('user'); // Clear invalid data
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('Error fetching auth session:', error);
+        } else if (session?.user) {
+          // console.log('Active Supabase Auth session found with ID:', session.user.id);
+          authUser = session.user;
         }
+      } catch (sessionErr) {
+        console.error('Error checking auth session:', sessionErr);
       }
       
-      // If no persisted user, check Supabase session
-      const { data: { session }, error } = await supabase.auth.getSession();
-      if (error) {
-        console.error('Error fetching session:', error);
-      } else {
-        setUser(session?.user || null);
-        if (session?.user) {
-          // Load backup preferences from user_preferences table
-          const { data: userPrefs, error: prefsError } = await supabase
-            .from('user_preferences')
-            .select('backup_enabled')
-            .eq('id', session.user.id)
-            .single();
-            
-          if (!prefsError && userPrefs) {
-            setBackupEnabled(userPrefs.backup_enabled || false);
-          } else if (prefsError) {
-            console.error('Error loading user preferences:', prefsError);
-            // Create preference record if it doesn't exist
+      // Check local storage for persisted user
+      try {
+        const persistedUser = localStorage.getItem('user');
+        if (persistedUser) {
+          customUser = JSON.parse(persistedUser);
+          // console.log('Found persisted user with ID:', customUser.id);
+        }
+      } catch (parseErr) {
+        console.error('Error parsing persisted user:', parseErr);
+        localStorage.removeItem('user'); // Clear invalid data
+      }
+      
+      // Decide which user to use based on what we found
+      let activeUser = null;
+      
+      // If we have both, make sure auth user ID is the one that's used
+      if (authUser && customUser) {
+        // console.log('Found both auth user and custom user, using auth user ID');
+        activeUser = {
+          ...customUser,
+          id: authUser.id, // Use the Auth ID for database operations
+          auth_user_id: authUser.id
+        };
+      } else if (authUser) {
+        // Just use the auth user if that's all we have
+        // console.log('Using Supabase Auth user only');
+        activeUser = authUser;
+      } else if (customUser) {
+        // Fall back to the custom user if no auth user
+        // console.log('No auth session found, using persisted custom user only');
+        activeUser = customUser;
+      }
+      
+      // Set the active user and start loading data
+      if (activeUser) {
+        // console.log('Setting active user with ID:', activeUser.id);
+        
+        // Update localStorage with the merged user for consistency
+        localStorage.setItem('user', JSON.stringify(activeUser));
+        
+        // Set user in state
+        setUser(activeUser);
+        
+        // Load backup preferences from user_preferences table
+        const { data: userPrefs, error: prefsError } = await supabase
+          .from('user_preferences')
+          .select('backup_enabled')
+          .eq('id', activeUser.id)
+          .single();
+          
+        if (!prefsError && userPrefs) {
+          setBackupEnabled(userPrefs.backup_enabled || false);
+        } else if (prefsError) {
+          console.error('Error loading user preferences:', prefsError);
+          // Create preference record if it doesn't exist
+          try {
             await supabase
               .from('user_preferences')
-              .insert([{ id: session.user.id, backup_enabled: false }])
-              .single();
+              .insert([{ id: activeUser.id, backup_enabled: false }]);
+          } catch (prefInsertErr) {
+            console.error('Error creating user preferences:', prefInsertErr);
           }
-          
-          // Fetch notes and backups
-          fetchNotes();
-          fetchBackups();
         }
+        
+        // Fetch notes and backups
+        fetchNotes(); 
+        fetchBackups();
+      } else {
+        // console.log('No user session found, user needs to log in');
       }
     };
 
@@ -178,7 +198,7 @@ export default function App() {
     const handleResize = () => {
       // If camera is active, we may need to adjust the video element
       if (isCameraActive && videoRef.current && videoRef.current.srcObject) {
-        console.log('Window resized or device orientation changed while camera active');
+        // console.log('Window resized or device orientation changed while camera active');
         // Here we just log it, but in some cases you might need to
         // restart the camera with new dimensions for better results
       }
@@ -225,7 +245,7 @@ export default function App() {
         
         // If no backup has been done yet or it's been over 24 hours
         if (!lastBackupDate || (now - lastBackupDate) > (24 * 60 * 60 * 1000)) {
-          console.log("Performing scheduled backup check");
+          // console.log("Performing scheduled backup check");
           
           // Only perform backup if there are notes to back up
           if (notes.length > 0) {
@@ -240,7 +260,7 @@ export default function App() {
             }
           }
         } else {
-          console.log("Backup not needed yet. Last backup was:", lastBackupDate);
+          // console.log("Backup not needed yet. Last backup was:", lastBackupDate);
         }
       } catch (err) {
         console.error("Error in backup scheduling:", err);
@@ -260,14 +280,41 @@ export default function App() {
   // Fetch notes from Supabase
   const fetchNotes = async () => {
     if (!user) return; // Only fetch notes if a user is logged in
+    
+    // Get the correct auth user ID
+    let authUserId = null;
+    try {
+      // First check if we have an active Supabase session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user?.id) {
+        // Use the auth user ID for fetching notes
+        authUserId = session.user.id;
+        // console.log("Using Supabase auth ID for fetching notes:", authUserId);
+      } else {
+        // If no active session, fall back to stored user ID
+        // console.log("No active auth session, falling back to user ID:", user.id);
+        authUserId = user.id;
+      }
+    } catch (sessionErr) {
+      console.error("Error checking auth session:", sessionErr);
+      // Fall back to user ID if we can't get the session
+      authUserId = user.id;
+    }
+    
     const { data, error } = await supabase
       .from('notes')
       .select('*')
-      .eq('user_id', user.id) // Filter notes by user ID
+      .eq('user_id', authUserId) // Use the auth user ID to filter notes
       .order('created_at', { ascending: false }); // Order by creation date
 
     if (error) {
       console.error('Error fetching notes:', error);
+      
+      // Check for foreign key or policy issues
+      if (error.code === '42501' || error.code === 'PGRST116') {
+        console.error("Permission denied when fetching notes. RLS policies may be incorrectly configured.");
+      }
       return;
     }
 
@@ -286,7 +333,7 @@ export default function App() {
           },
         }
       );
-      console.log('Gemini AI Response:', response.data);
+      // console.log('Gemini AI Response:', response.data);
       return response.data;
     } catch (error) {
       console.error('Error calling Gemini AI:', error);
@@ -371,7 +418,7 @@ export default function App() {
       
       // Ensure the component is in a state where it can access the camera
       if (!isCameraActive && !showHistory) {
-        console.log('Preparing to activate camera');
+        // console.log('Preparing to activate camera');
       } else if (showHistory) {
         console.warn('Cannot activate camera while in history view');
         return; // Don't activate camera in history view
@@ -404,7 +451,7 @@ export default function App() {
         audio: false
       };
       
-      console.log('Requesting camera access with constraints:', constraints);
+      // console.log('Requesting camera access with constraints:', constraints);
       
       let stream;
       try {
@@ -420,7 +467,7 @@ export default function App() {
         
         try {
           stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-          console.log('Camera accessed with fallback constraints');
+          // console.log('Camera accessed with fallback constraints');
         } catch (fallbackError) {
           console.error('Failed with fallback constraints:', fallbackError);
           throw new Error('Could not access any camera: ' + fallbackError.message);
@@ -439,7 +486,7 @@ export default function App() {
         
         // Ensure video playback starts
         videoRef.current.onloadedmetadata = () => {
-          console.log('Video metadata loaded, attempting to play');
+          // console.log('Video metadata loaded, attempting to play');
           try {
             // Using play() with a timeout to ensure it's ready
             setTimeout(() => {
@@ -463,7 +510,7 @@ export default function App() {
         // Add a timeout as a fallback if metadata event doesn't fire
         setTimeout(() => {
           if (videoRef.current && videoRef.current.srcObject && !videoRef.current.playing) {
-            console.log('Metadata event did not fire, trying to play video directly');
+            // console.log('Metadata event did not fire, trying to play video directly');
             videoRef.current.play().catch(err => {
               console.error("Error in fallback play:", err);
               stopCamera(); // Close camera on playback error
@@ -471,7 +518,7 @@ export default function App() {
           }
         }, 1000);
         
-        console.log("Camera activated successfully");
+        // console.log("Camera activated successfully");
       } else {
         throw new Error('Video element reference is not available after state update');
       }
@@ -558,7 +605,7 @@ export default function App() {
           // Stop camera stream
           stopCamera();
           
-          console.log("Picture taken successfully");
+          // console.log("Picture taken successfully");
         } else {
           console.error("Failed to create image blob");
           alert("Failed to process image. Please try again.");
@@ -574,16 +621,16 @@ export default function App() {
   
   // Stop camera
   const stopCamera = () => {
-    console.log("Stopping camera");
+    // console.log("Stopping camera");
     try {
       if (cameraStream.current) {
         const tracks = cameraStream.current.getTracks();
-        console.log(`Stopping ${tracks.length} camera tracks`);
+        // console.log(`Stopping ${tracks.length} camera tracks`);
         
         tracks.forEach(track => {
           try {
             track.stop();
-            console.log(`Track ${track.id} stopped successfully`);
+            // console.log(`Track ${track.id} stopped successfully`);
           } catch (trackErr) {
             console.error(`Error stopping track ${track.id}:`, trackErr);
           }
@@ -591,13 +638,13 @@ export default function App() {
         
         cameraStream.current = null;
       } else {
-        console.log("No camera stream to stop");
+        // console.log("No camera stream to stop");
       }
       
       if (videoRef.current) {
         videoRef.current.srcObject = null;
         videoRef.current.onloadedmetadata = null; // Remove event listener
-        console.log("Video source cleared");
+        // console.log("Video source cleared");
       }
       
       setIsCameraActive(false);
@@ -644,6 +691,27 @@ export default function App() {
     if (!title.trim()) {
       alert('Please enter a title for your note');
       return;
+    }
+    
+    // Get the correct auth user ID
+    let authUserId = null;
+    try {
+      // First check if we have an active Supabase session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user?.id) {
+        // Use the auth user ID for the note
+        authUserId = session.user.id;
+        // console.log("Using Supabase auth ID for saving note:", authUserId);
+      } else {
+        // If no active session, fall back to stored user ID
+        // console.log("No active auth session, falling back to user ID:", user.id);
+        authUserId = user.id;
+      }
+    } catch (sessionErr) {
+      console.error("Error checking auth session:", sessionErr);
+      // Fall back to user ID if we can't get the session
+      authUserId = user.id;
     }
     
     let imageUrlToSave = null;
@@ -700,12 +768,18 @@ export default function App() {
           content: encryptedContent,
           image_url: imageUrlToSave,
           updated_at: timestamp.toISOString(),
-          user_id: user.id,
+          user_id: authUserId,  // Use the auth user ID instead of user.id
         })
         .eq('id', editingId);
 
       if (error) {
-        alert('Error updating note: ' + error.message);
+        console.error("Error updating note:", error);
+        
+        if (error.code === '23503' || error.message?.includes("violates foreign key constraint")) {
+          alert("Authentication error: Your account is not properly linked with Supabase Auth. Please log out and sign up again with an email address.");
+        } else {
+          alert('Error updating note: ' + error.message);
+        }
         return;
       }
 
@@ -716,7 +790,7 @@ export default function App() {
           const oldImagePath = oldImageUrl.split('/').pop();
           
           if (oldImagePath) {
-            console.log('Attempting to delete old image:', oldImagePath);
+            // console.log('Attempting to delete old image:', oldImagePath);
             const { error: storageError } = await supabase.storage
               .from('notes-images')
               .remove([oldImagePath]);
@@ -724,7 +798,7 @@ export default function App() {
             if (storageError) {
               console.error('Error deleting old image from storage:', storageError);
             } else {
-              console.log('Old image deleted successfully from storage');
+              // console.log('Old image deleted successfully from storage');
             }
           }
         } catch (err) {
@@ -740,10 +814,16 @@ export default function App() {
           image_url: imageUrlToSave,
           created_at: formattedDate,
           updated_at: formattedDate,
-          user_id: user.id,
+          user_id: authUserId,  // Use the auth user ID instead of user.id
         }]);
       if (error) {
-        alert('Error creating note: ' + error.message);
+        console.error("Error creating note:", error);
+        
+        if (error.code === '23503' || error.message?.includes("violates foreign key constraint")) {
+          alert("Authentication error: Your account is not properly linked with Supabase Auth. Please log out and sign up again with an email address.");
+        } else {
+          alert('Error creating note: ' + error.message);
+        }
         return;
       }
     }
@@ -839,7 +919,7 @@ export default function App() {
           const imagePath = urlParts[urlParts.length - 1];
           
           if (imagePath) {
-            console.log('Attempting to delete image:', imagePath);
+            // console.log('Attempting to delete image:', imagePath);
             const { error: storageError } = await supabase.storage
               .from('notes-images')
               .remove([imagePath]);
@@ -847,7 +927,7 @@ export default function App() {
             if (storageError) {
               console.error('Error deleting image from storage:', storageError);
             } else {
-              console.log('Image deleted successfully from storage');
+              // console.log('Image deleted successfully from storage');
             }
           }
         } catch (err) {
@@ -912,62 +992,227 @@ export default function App() {
 
   // Function to handle user login
   const handleLogin = async () => {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('username', username)
-      .single();
+    try {
+      // First, try to authenticate with Supabase Auth if email is provided
+      if (username.includes('@')) {
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+          email: username,
+          password: password
+        });
+        
+        if (!authError && authData?.user) {
+          // Store credentials securely for potential session refresh
+          try {
+            localStorage.setItem('userCredentials', JSON.stringify({
+              email: username,
+              password: password // Ideally encrypt this or use a token approach
+            }));
+          } catch (e) {
+            console.error("Could not store credentials:", e);
+          }
+          
+          // Store user data in localStorage for persistence between page reloads
+          localStorage.setItem('user', JSON.stringify(authData.user));
+          setUser(authData.user); // Set the logged-in user
+          await fetchNotes(); // Fetch notes for the logged-in user
+          return;
+        }
+      }
+      
+      // Fall back to custom users table if Supabase Auth fails or username is not an email
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', username)
+        .single();
 
-    if (error || !data) {
-      setError('Login error: User not found. Please sign up.');
-      return;
-    }
+      if (error || !data) {
+        setError('Login error: User not found. Please sign up.');
+        return;
+      }
 
-    const isMatch = await bcrypt.compare(password, data.password);
-    if (isMatch) {
-      // Store user data in localStorage for persistence between page reloads
-      localStorage.setItem('user', JSON.stringify(data));
-      setUser(data); // Set the logged-in user
-      await fetchNotes(); // Fetch notes for the logged-in user
-    } else {
-      setError('Login error: Incorrect password.');
+      const isMatch = await bcrypt.compare(password, data.password);
+      if (isMatch) {
+        // Store credentials securely for potential session refresh
+        try {
+          localStorage.setItem('userCredentials', JSON.stringify({
+            username: username,
+            password: password // Ideally encrypt this or use a token approach
+          }));
+        } catch (e) {
+          console.error("Could not store credentials:", e);
+        }
+        
+        // Store user data in localStorage for persistence between page reloads
+        localStorage.setItem('user', JSON.stringify(data));
+        setUser(data); // Set the logged-in user
+        await fetchNotes(); // Fetch notes for the logged-in user
+      } else {
+        setError('Login error: Incorrect password.');
+      }
+    } catch (err) {
+      console.error("Login error:", err);
+      setError('Login error: ' + (err.message || 'Unknown error'));
     }
   };
 
   // Function to handle user sign-up
   const handleSignUp = async () => {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const { data, error } = await supabase
-      .from('users')
-      .insert([{ username, password: hashedPassword }]);
+    try {
+      // Validate inputs
+      if (!username || !password) {
+        setError('Please provide both username and email/password');
+        return;
+      }
+      
+      // Check if the username is an email address
+      const isEmail = username.includes('@');
+      let userId = null;
+      let authUser = null;
+      
+      // First, try to register with Supabase Auth if email is provided
+      if (isEmail) {
+        // Sign up with Supabase Auth
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: username,
+          password: password,
+          options: {
+            data: {
+              username: username.split('@')[0] // Use part before @ as username
+            }
+          }
+        });
+        
+        if (authError) {
+          console.error("Supabase Auth signup error:", authError);
+          setError('Sign-up error: ' + authError.message);
+          return;
+        }
+        
+        if (authData?.user) {
+          // Store the auth user ID
+          userId = authData.user.id;
+          authUser = authData.user;
+          // console.log("Successfully created auth user with ID:", userId);
+          
+          // Store credentials securely for potential session refresh
+          try {
+            localStorage.setItem('userCredentials', JSON.stringify({
+              email: username,
+              password: password
+            }));
+          } catch (e) {
+            console.error("Could not store credentials:", e);
+          }
+        } else {
+          console.warn("No auth user returned from signup");
+        }
+      }
+      
+      // Hash password for custom users table
+      const hashedPassword = await bcrypt.hash(password, 10);
+      
+      // Insert into custom users table
+      const userData = { 
+        username, 
+        password: hashedPassword
+      };
+      
+      // If we have an auth user ID, associate it with this user
+      if (userId) {
+        userData.auth_user_id = userId;
+      }
+      
+      const { data, error } = await supabase
+        .from('users')
+        .insert([userData])
+        .select();
 
-    if (error) {
-      setError('Sign-up error: ' + error.message);
-      return; // Exit if there's an error
-    }
+      if (error) {
+        // If error, try to clean up auth user if it was created
+        if (authUser) {
+          // Note: can't actually delete auth users through API, but we can flag them
+          console.error("Error creating custom user, but auth user was created:", authUser.id);
+        }
+        
+        setError('Sign-up error: ' + error.message);
+        return;
+      }
 
-    if (data && data.length > 0) {
-      // Store user data in localStorage for persistence between page reloads
-      localStorage.setItem('user', JSON.stringify(data[0]));
-      setUser(data[0]); // Set the logged-in user
-      await fetchNotes(); // Fetch notes for the new user
-      alert('Sign-up successful!'); // Show success message
-    } else {
-      setError('Sign-up error: No user data returned.');
+      if (data && data.length > 0) {
+        const userRecord = data[0];
+        
+        // If we have an auth user, use that for RLS policies
+        if (authUser) {
+          // Store auth user in localStorage
+          localStorage.setItem('user', JSON.stringify({
+            ...userRecord,
+            id: authUser.id // Use auth user ID for database operations
+          }));
+          setUser({
+            ...userRecord,
+            id: authUser.id // Use auth user ID for database operations
+          });
+        } else {
+          // No auth user, just use the custom user
+          localStorage.setItem('user', JSON.stringify(userRecord));
+          setUser(userRecord);
+          
+          // For non-email users, store credentials differently
+          try {
+            localStorage.setItem('userCredentials', JSON.stringify({
+              username: username,
+              password: password
+            }));
+          } catch (e) {
+            console.error("Could not store credentials:", e);
+          }
+          
+          // Warn that some features might not work
+          alert('Sign-up successful! Note: Online backup feature requires signing up with an email address.');
+        }
+        
+        await fetchNotes(); // Fetch notes for the new user
+        if (authUser) {
+          alert('Sign-up successful! Your account is fully set up with all features enabled.');
+        }
+      } else {
+        setError('Sign-up error: No user data returned.');
+      }
+    } catch (err) {
+      console.error("Sign-up error:", err);
+      setError('Sign-up error: ' + (err.message || 'Unknown error'));
     }
   };
 
   // Function to handle user logout
   const handleLogout = async () => {
-    // Make sure camera is stopped if active
-    if (isCameraActive) {
-      stopCamera();
+    try {
+      // Make sure camera is stopped if active
+      if (isCameraActive) {
+        stopCamera();
+      }
+      
+      // Clear all authentication data
+      await supabase.auth.signOut();
+      localStorage.removeItem('user'); // Clear persisted user data
+      localStorage.removeItem('userCredentials'); // Clear stored credentials
+      
+      // Clear application state
+      setUser(null); // Clear user state
+      setNotes([]); // Clear notes
+      setBackupList([]); // Clear backup list
+      
+      // console.log("Successfully logged out and cleared all credentials");
+    } catch (err) {
+      console.error("Error during logout:", err);
+      
+      // Force clear local storage even if signOut fails
+      localStorage.removeItem('user');
+      localStorage.removeItem('userCredentials');
+      setUser(null);
+      setNotes([]);
     }
-    
-    await supabase.auth.signOut();
-    localStorage.removeItem('user'); // Clear persisted user data
-    setUser(null); // Clear user state
-    setNotes([]); // Clear notes
   };
 
   // Function to fetch all previous notes when History button is clicked
@@ -1164,9 +1409,17 @@ export default function App() {
   // Function to store backup in Supabase
   const storeBackupOnline = async (backupName = '') => {
     try {
+      // Check if there are notes to backup
       if (!notes || notes.length === 0) {
         alert("No notes available to backup");
-        return;
+        return false;
+      }
+      
+      // Ensure user is authenticated
+      if (!user || !user.id) {
+        console.error("User not authenticated properly");
+        alert("Authentication error: Please log out and log back in");
+        return false;
       }
       
       // If no name provided, generate one
@@ -1186,28 +1439,104 @@ export default function App() {
         note_count: notes.length
       };
       
-      // Store in Supabase
-      const { data, error } = await supabase
-        .from('note_backups')
-        .insert([{
-          user_id: user.id,
-          backup_data: backupData,
-          backup_type: 'manual',
-          backup_name: backupName
-        }]);
+      // console.log("Attempting to store backup with user_id:", user.id);
+      
+      // Get the actual auth user ID from Supabase
+      let authUserId = null;
+      try {
+        // Get the current session
+        const { data: { session } } = await supabase.auth.getSession();
         
-      if (error) {
-        console.error("Error storing backup:", error);
-        alert("Error storing backup online");
+        if (session?.user?.id) {
+          // Use the auth user ID for the backup
+          authUserId = session.user.id;
+          // console.log("Using Supabase auth ID for backup:", authUserId);
+        } else {
+          // console.log("No auth session found, trying to sign in with stored credentials");
+          
+          // Try to sign in with stored credentials to get a valid auth ID
+          const storedCredentials = localStorage.getItem('userCredentials');
+          if (storedCredentials) {
+            try {
+              const creds = JSON.parse(storedCredentials);
+              
+              if (creds.email && creds.password) {
+                // Try to sign in with email/password
+                const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+                  email: creds.email,
+                  password: creds.password
+                });
+                
+                if (!signInError && signInData?.user?.id) {
+                  authUserId = signInData.user.id;
+                  // console.log("Re-authenticated successfully, using auth ID:", authUserId);
+                }
+              }
+            } catch (credError) {
+              console.error("Error processing stored credentials:", credError);
+            }
+          }
+          
+          // If still no auth ID, we need to handle this differently
+          if (!authUserId) {
+            alert("Authentication error: Your account is not properly linked with Supabase Auth. Please contact support or sign up with an email address.");
+            return false;
+          }
+        }
+      } catch (sessionErr) {
+        console.error("Error getting auth session:", sessionErr);
+        alert("Failed to authenticate with Supabase. Please log out and log back in.");
         return false;
       }
       
+      // Store in Supabase with more detailed error handling
+      const { data, error } = await supabase
+        .from('note_backups')
+        .insert([{
+          user_id: authUserId, // Use the authenticated user ID from Supabase Auth
+          backup_data: backupData,
+          backup_type: 'manual',
+          backup_name: backupName,
+          is_deleted: false,
+          backup_date: new Date().toISOString()
+        }])
+        .select();
+        
+      if (error) {
+        console.error("Error storing backup:", error);
+        
+        // More specific error messages
+        if (error.code === '42501' || error.code === 'PGRST116') {
+          alert("Permission denied. Your account doesn't have permission to create backups. This may be due to a Row Level Security policy issue.");
+        } else if (error.code === '23505') {
+          alert("A backup with the same date already exists. Please try again in a moment.");
+        } else if (error.code === '23503' || error.message?.includes("violates foreign key constraint")) {
+          // Handle foreign key constraint specifically
+          alert("Error: Your user account is not properly registered in the Supabase authentication system. Please log out, then sign up again using your email address.");
+          return false;
+        } else if (error.status === 401 || error.code === 'PGRST301') {
+          // If we get a 401, we might need to re-authenticate the user
+          alert("Authentication error: Your session has expired. Please log out and log back in to refresh your authentication.");
+          return false;
+        } else {
+          alert(`Error storing backup: ${error.message || 'Unknown error'}`);
+        }
+        return false;
+      }
+      
+      if (!data || data.length === 0) {
+        console.error("No data returned from backup insertion");
+        alert("Backup may not have been stored correctly");
+        return false;
+      }
+      
+      // console.log("Backup stored successfully:", data);
       alert("Backup stored online successfully");
       fetchBackups(); // Refresh backup list
       return true;
     } catch (err) {
       console.error("Error storing backup:", err);
-      alert("Failed to store backup online");
+      alert("Failed to store backup online: " + (err.message || 'Unknown error'));
       return false;
     }
   };
@@ -1215,8 +1544,15 @@ export default function App() {
   // Function to fetch user's backups
   const fetchBackups = async () => {
     try {
-      if (!user) return;
+      // Check if user is logged in
+      if (!user || !user.id) {
+        // console.log("No user logged in, skipping backup fetch");
+        return;
+      }
       
+      // console.log("Fetching backups for user ID:", user.id);
+      
+      // Attempt to fetch backups
       const { data, error } = await supabase
         .from('note_backups')
         .select('*')
@@ -1226,9 +1562,11 @@ export default function App() {
         
       if (error) {
         console.error("Error fetching backups:", error);
+        // Don't show alert to user as this might be called in the background
         return;
       }
       
+      // console.log(`Successfully fetched ${data?.length || 0} backups`);
       setBackupList(data || []);
     } catch (err) {
       console.error("Error fetching backups:", err);
@@ -1240,7 +1578,7 @@ export default function App() {
     try {
       // Only perform if user has enabled backups
       if (!backupEnabled || !user) {
-        console.log("Auto backup skipped: disabled or no user");
+        // console.log("Auto backup skipped: disabled or no user");
         return false;
       }
       
@@ -1259,7 +1597,7 @@ export default function App() {
         
         // If no new updates, skip backup
         if (latestNoteUpdate <= lastBackupDate) {
-          console.log("Auto backup skipped: no new updates");
+          // console.log("Auto backup skipped: no new updates");
           return false;
         }
       }
@@ -1291,7 +1629,7 @@ export default function App() {
         return false;
       }
       
-      console.log("Auto backup completed successfully");
+      // console.log("Auto backup completed successfully");
       fetchBackups(); // Refresh backup list
       return true;
     } catch (err) {

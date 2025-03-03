@@ -10,7 +10,7 @@ const patchReactDOM = () => {
   
   // Only add the polyfill if it's missing
   if (!reactDOMToFix.findDOMNode) {
-    console.log('Applying findDOMNode polyfill for React 19 compatibility');
+    // console.log('Applying findDOMNode polyfill for React 19 compatibility');
     
     reactDOMToFix.findDOMNode = function(component) {
       // Handle null values
