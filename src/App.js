@@ -11,9 +11,16 @@ import bcrypt from 'bcryptjs'; // Import bcrypt
 import PasswordReset from './PasswordReset'; // Import the PasswordReset component
 import NotesHistory from './components/NotesHistory'; // Import the NotesHistory component
 import NoteDetail from './components/NoteDetail'; // Import the NoteDetail component
-import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft } from 'react-icons/fa';
+import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive } from 'react-icons/fa';
 import CustomQuill from './CustomQuill'; // Import our custom wrapper instead
 import 'react-quill/dist/quill.snow.css'; // Import Quill styles
+import { v4 as uuidv4 } from 'uuid';
+import Crypto from 'crypto-js';
+import ReactQuill from 'react-quill';
+import * as XLSX from 'xlsx';
+import FileSaver from 'file-saver';
+import moment from 'moment';
+import JSZip from 'jszip';
 
 const secretKey = process.env.REACT_APP_SECRET_KEY; // Get the secret key from environment variables
 
@@ -60,19 +67,81 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false); // New state to show history view
   const [selectedNote, setSelectedNote] = useState(null); // State for selected note in history
   const [isCameraActive, setIsCameraActive] = useState(false); // State for camera activation
+  const [backupEnabled, setBackupEnabled] = useState(false); // State for backup preference
+  const [searchTerm, setSearchTerm] = useState(''); // State for search functionality
+  const [sortOrder, setSortOrder] = useState('newest'); // State for sorting preference (default: newest)
+  const [backupList, setBackupList] = useState([]); // State to store list of backups
+  const [showBackupPanel, setShowBackupPanel] = useState(false); // State to toggle backup panel
   
   const videoRef = useRef(null); // Reference for the video element
   const cameraStream = useRef(null); // Reference to store camera stream
 
   useEffect(() => {
     const checkSession = async () => {
+      // First check local storage for persisted user
+      const persistedUser = localStorage.getItem('user');
+      
+      if (persistedUser) {
+        try {
+          const userData = JSON.parse(persistedUser);
+          setUser(userData);
+          
+          // Load backup preferences from user_preferences table
+          const { data: userPrefs, error: prefsError } = await supabase
+            .from('user_preferences')
+            .select('backup_enabled')
+            .eq('id', userData.id)
+            .single();
+            
+          if (!prefsError && userPrefs) {
+            setBackupEnabled(userPrefs.backup_enabled || false);
+          } else if (prefsError) {
+            console.error('Error loading user preferences:', prefsError);
+            // Create preference record if it doesn't exist
+            await supabase
+              .from('user_preferences')
+              .insert([{ id: userData.id, backup_enabled: false }])
+              .single();
+          }
+          
+          // Fetch notes and backups
+          fetchNotes(); 
+          fetchBackups();
+          return; // Exit early if we have a persisted user
+        } catch (err) {
+          console.error('Error parsing persisted user:', err);
+          localStorage.removeItem('user'); // Clear invalid data
+        }
+      }
+      
+      // If no persisted user, check Supabase session
       const { data: { session }, error } = await supabase.auth.getSession();
       if (error) {
         console.error('Error fetching session:', error);
       } else {
         setUser(session?.user || null);
         if (session?.user) {
-          fetchNotes(); 
+          // Load backup preferences from user_preferences table
+          const { data: userPrefs, error: prefsError } = await supabase
+            .from('user_preferences')
+            .select('backup_enabled')
+            .eq('id', session.user.id)
+            .single();
+            
+          if (!prefsError && userPrefs) {
+            setBackupEnabled(userPrefs.backup_enabled || false);
+          } else if (prefsError) {
+            console.error('Error loading user preferences:', prefsError);
+            // Create preference record if it doesn't exist
+            await supabase
+              .from('user_preferences')
+              .insert([{ id: session.user.id, backup_enabled: false }])
+              .single();
+          }
+          
+          // Fetch notes and backups
+          fetchNotes();
+          fetchBackups();
         }
       }
     };
@@ -132,6 +201,61 @@ export default function App() {
       }
     };
   }, [isCameraActive]);
+
+  useEffect(() => {
+    // Set up backup check when app loads
+    const checkForBackup = async () => {
+      if (!user || !backupEnabled) return;
+      
+      try {
+        // Get the last backup date for this user
+        const { data: userPrefs, error } = await supabase
+          .from('user_preferences')
+          .select('last_backup_date')
+          .eq('id', user.id)
+          .single();
+          
+        if (error) {
+          console.error("Error checking backup status:", error);
+          return;
+        }
+        
+        const lastBackupDate = userPrefs?.last_backup_date ? new Date(userPrefs.last_backup_date) : null;
+        const now = new Date();
+        
+        // If no backup has been done yet or it's been over 24 hours
+        if (!lastBackupDate || (now - lastBackupDate) > (24 * 60 * 60 * 1000)) {
+          console.log("Performing scheduled backup check");
+          
+          // Only perform backup if there are notes to back up
+          if (notes.length > 0) {
+            const success = await performAutoBackup();
+            
+            // Update last backup date if successful
+            if (success) {
+              await supabase
+                .from('user_preferences')
+                .update({ last_backup_date: now.toISOString() })
+                .eq('id', user.id);
+            }
+          }
+        } else {
+          console.log("Backup not needed yet. Last backup was:", lastBackupDate);
+        }
+      } catch (err) {
+        console.error("Error in backup scheduling:", err);
+      }
+    };
+    
+    // Run backup check when the component mounts with delay to ensure notes are loaded
+    if (user && backupEnabled) {
+      const timer = setTimeout(() => {
+        checkForBackup();
+      }, 5000); // 5 second delay
+      
+      return () => clearTimeout(timer); // Clean up
+    }
+  }, [user, backupEnabled, notes]);
 
   // Fetch notes from Supabase
   const fetchNotes = async () => {
@@ -245,9 +369,29 @@ export default function App() {
         stopCamera();
       }
       
+      // Ensure the component is in a state where it can access the camera
+      if (!isCameraActive && !showHistory) {
+        console.log('Preparing to activate camera');
+      } else if (showHistory) {
+        console.warn('Cannot activate camera while in history view');
+        return; // Don't activate camera in history view
+      }
+      
       // Check if mediaDevices is supported
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Camera API is not supported in this browser');
+      }
+      
+      // Set isCameraActive to true before accessing camera
+      // This will cause the video element to be rendered in the DOM
+      setIsCameraActive(true);
+      
+      // Wait a moment for the DOM to update with the video element
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Check if video element is available after state update
+      if (!videoRef.current) {
+        throw new Error('Video element reference is not available');
       }
       
       // Try with ideal settings first
@@ -274,8 +418,13 @@ export default function App() {
           audio: false
         };
         
-        stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-        console.log('Camera accessed with fallback constraints');
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+          console.log('Camera accessed with fallback constraints');
+        } catch (fallbackError) {
+          console.error('Failed with fallback constraints:', fallbackError);
+          throw new Error('Could not access any camera: ' + fallbackError.message);
+        }
       }
       
       if (!stream) {
@@ -294,16 +443,20 @@ export default function App() {
           try {
             // Using play() with a timeout to ensure it's ready
             setTimeout(() => {
-              const playPromise = videoRef.current.play();
-              if (playPromise !== undefined) {
-                playPromise.catch(err => {
-                  console.error("Error playing video:", err);
-                  alert("Could not start video playback. Please try again.");
-                });
+              if (videoRef.current) {
+                const playPromise = videoRef.current.play();
+                if (playPromise !== undefined) {
+                  playPromise.catch(err => {
+                    console.error("Error playing video:", err);
+                    alert("Could not start video playback. Please try again.");
+                    stopCamera(); // Close camera on playback error
+                  });
+                }
               }
             }, 100);
           } catch (err) {
             console.error("Error in play handler:", err);
+            stopCamera(); // Close camera on playback error
           }
         };
         
@@ -313,17 +466,23 @@ export default function App() {
             console.log('Metadata event did not fire, trying to play video directly');
             videoRef.current.play().catch(err => {
               console.error("Error in fallback play:", err);
+              stopCamera(); // Close camera on playback error
             });
           }
         }, 1000);
+        
+        console.log("Camera activated successfully");
       } else {
-        throw new Error('Video element reference is not available');
+        throw new Error('Video element reference is not available after state update');
       }
-      
-      setIsCameraActive(true);
-      console.log("Camera activated successfully");
     } catch (err) {
       console.error('Error accessing camera:', err);
+      
+      // Make sure we stop any partial stream that might have been created
+      if (cameraStream.current) {
+        stopCamera();
+      }
+      
       alert('Error accessing camera: ' + err.message);
       setIsCameraActive(false);
     }
@@ -331,19 +490,21 @@ export default function App() {
   
   // Take a picture from the camera
   const takePicture = () => {
-    if (!videoRef.current) {
-      console.error("Video element not available");
-      alert("Cannot access camera view. Please try again.");
-      return;
-    }
-    
-    if (!videoRef.current.srcObject) {
-      console.error("Video stream not available");
-      alert("Camera stream not active. Please restart the camera.");
-      return;
-    }
-    
     try {
+      if (!videoRef.current) {
+        console.error("Video element not available");
+        alert("Cannot access camera view. Please try again.");
+        stopCamera(); // Ensure camera is closed
+        return;
+      }
+      
+      if (!videoRef.current.srcObject) {
+        console.error("Video stream not available");
+        alert("Camera stream not active. Please restart the camera.");
+        stopCamera(); // Ensure camera is closed
+        return;
+      }
+      
       const canvas = document.createElement('canvas');
       const video = videoRef.current;
       
@@ -359,6 +520,7 @@ export default function App() {
         if (!width || !height) {
           console.error("Could not determine video dimensions");
           alert("Could not capture image. Please try again.");
+          stopCamera(); // Ensure camera is closed
           return;
         }
       }
@@ -371,6 +533,7 @@ export default function App() {
       if (!ctx) {
         console.error("Could not get canvas context");
         alert("Failed to process image. Please try again.");
+        stopCamera(); // Ensure camera is closed
         return;
       }
       
@@ -378,37 +541,34 @@ export default function App() {
       ctx.drawImage(video, 0, 0, width, height);
       
       // Convert canvas to blob with error handling
-      try {
-        canvas.toBlob((blob) => {
-          if (blob) {
-            // Create a new file with timestamp and proper extension
-            const imageFile = new File([blob], `camera_image_${Date.now()}.jpg`, {
-              type: 'image/jpeg',
-              lastModified: Date.now()
-            });
-            
-            setImage(imageFile);
-            
-            // Create a thumbnail preview URL
-            const imageUrl = URL.createObjectURL(blob);
-            setImageUrl(imageUrl);
-            
-            // Stop camera stream
-            stopCamera();
-            
-            console.log("Picture taken successfully");
-          } else {
-            console.error("Failed to create image blob");
-            alert("Failed to process image. Please try again.");
-          }
-        }, 'image/jpeg', 0.9);
-      } catch (blobErr) {
-        console.error("Error creating blob:", blobErr);
-        alert("Failed to process the captured image.");
-      }
+      canvas.toBlob((blob) => {
+        if (blob) {
+          // Create a new file with timestamp and proper extension
+          const imageFile = new File([blob], `camera_image_${Date.now()}.jpg`, {
+            type: 'image/jpeg',
+            lastModified: Date.now()
+          });
+          
+          setImage(imageFile);
+          
+          // Create a thumbnail preview URL
+          const imageUrl = URL.createObjectURL(blob);
+          setImageUrl(imageUrl);
+          
+          // Stop camera stream
+          stopCamera();
+          
+          console.log("Picture taken successfully");
+        } else {
+          console.error("Failed to create image blob");
+          alert("Failed to process image. Please try again.");
+          stopCamera(); // Ensure camera is closed
+        }
+      }, 'image/jpeg', 0.9);
     } catch (err) {
       console.error("Error taking picture:", err);
       alert("Error taking picture: " + err.message);
+      stopCamera(); // Ensure camera is closed
     }
   };
   
@@ -436,6 +596,7 @@ export default function App() {
       
       if (videoRef.current) {
         videoRef.current.srcObject = null;
+        videoRef.current.onloadedmetadata = null; // Remove event listener
         console.log("Video source cleared");
       }
       
@@ -764,6 +925,8 @@ export default function App() {
 
     const isMatch = await bcrypt.compare(password, data.password);
     if (isMatch) {
+      // Store user data in localStorage for persistence between page reloads
+      localStorage.setItem('user', JSON.stringify(data));
       setUser(data); // Set the logged-in user
       await fetchNotes(); // Fetch notes for the logged-in user
     } else {
@@ -784,6 +947,8 @@ export default function App() {
     }
 
     if (data && data.length > 0) {
+      // Store user data in localStorage for persistence between page reloads
+      localStorage.setItem('user', JSON.stringify(data[0]));
       setUser(data[0]); // Set the logged-in user
       await fetchNotes(); // Fetch notes for the new user
       alert('Sign-up successful!'); // Show success message
@@ -800,6 +965,7 @@ export default function App() {
     }
     
     await supabase.auth.signOut();
+    localStorage.removeItem('user'); // Clear persisted user data
     setUser(null); // Clear user state
     setNotes([]); // Clear notes
   };
@@ -837,6 +1003,539 @@ export default function App() {
     setImageUrl(null);
   };
 
+  // Function to toggle backup preferences
+  const toggleBackupPreference = async () => {
+    try {
+      const newBackupEnabled = !backupEnabled;
+      setBackupEnabled(newBackupEnabled);
+      
+      // Update user preferences in database
+      const { error } = await supabase
+        .from('user_preferences')
+        .update({ backup_enabled: newBackupEnabled })
+        .eq('id', user.id);
+        
+      if (error) {
+        console.error("Error updating backup preferences:", error);
+        alert("Error updating backup preferences");
+      }
+    } catch (err) {
+      console.error("Error toggling backup preference:", err);
+      alert("Could not update backup preferences");
+    }
+  };
+
+  // Function to generate Excel file from notes
+  const generateExcel = async () => {
+    try {
+      if (!notes || notes.length === 0) {
+        alert("No notes available to export");
+        return;
+      }
+      
+      // Create arrays to store data for both worksheets
+      const notesData = [];
+      const imagesData = [];
+      let imageIndex = 0;
+      
+      // Process each note
+      for (let i = 0; i < notes.length; i++) {
+        const note = notes[i];
+        
+        // Decrypt note content
+        const decryptedTitle = decryptData(note.title);
+        const decryptedContent = decryptData(note.content);
+        
+        // Remove HTML tags for Excel text content
+        const contentWithoutTags = decryptedContent.replace(/<[^>]*>/g, ' ');
+        
+        // Check for images in the note content (both embedded and attached)
+        let imageReferences = '';
+        
+        // Check for image URL from upload
+        if (note.image_url) {
+          try {
+            // Get the image data
+            const { data: imageData, error: imageError } = await supabase
+              .storage
+              .from('notes-images')
+              .download(note.image_url.split('/').pop());
+            
+            if (imageError) {
+              console.error("Error downloading image:", imageError);
+            } else if (imageData) {
+              // Create a reference to the image in the Images sheet
+              imageIndex++;
+              imageReferences = `See image #${imageIndex} in Images sheet`;
+              
+              // Add to images data
+              imagesData.push({
+                'Image #': imageIndex,
+                'Note Title': decryptedTitle,
+                'Image Type': 'Attached Image',
+                'Note Created': moment(note.created_at).format('YYYY-MM-DD HH:mm:ss')
+              });
+            }
+          } catch (imgErr) {
+            console.error("Error processing attached image:", imgErr);
+          }
+        }
+        
+        // Extract embedded images from HTML content
+        try {
+          // Create a temp div to parse HTML
+          const div = document.createElement('div');
+          div.innerHTML = decryptedContent;
+          
+          // Find all images in the content
+          const contentImages = div.querySelectorAll('img');
+          
+          for (let j = 0; j < contentImages.length; j++) {
+            const imgElement = contentImages[j];
+            const imgSrc = imgElement.src;
+            
+            if (imgSrc) {
+              // Create a reference to the image in the Images sheet
+              imageIndex++;
+              
+              // Add to the reference string
+              if (imageReferences) {
+                imageReferences += `, #${imageIndex}`;
+              } else {
+                imageReferences = `See image #${imageIndex} in Images sheet`;
+              }
+              
+              // Add to images data
+              imagesData.push({
+                'Image #': imageIndex,
+                'Note Title': decryptedTitle,
+                'Image Type': 'Embedded in Content',
+                'Note Created': moment(note.created_at).format('YYYY-MM-DD HH:mm:ss')
+              });
+            }
+          }
+        } catch (parseErr) {
+          console.error("Error parsing HTML content for images:", parseErr);
+        }
+        
+        // Add note data to the main worksheet
+        notesData.push({
+          'Title': decryptedTitle,
+          'Content': contentWithoutTags,
+          'Created': moment(note.created_at).format('YYYY-MM-DD HH:mm:ss'),
+          'Updated': moment(note.updated_at).format('YYYY-MM-DD HH:mm:ss'),
+          'Images': imageReferences || 'No images'
+        });
+      }
+      
+      // Create workbook
+      const workbook = XLSX.utils.book_new();
+      
+      // Add notes worksheet
+      const notesWorksheet = XLSX.utils.json_to_sheet(notesData);
+      XLSX.utils.book_append_sheet(workbook, notesWorksheet, "Notes");
+      
+      // Add images worksheet if we have any images
+      if (imagesData.length > 0) {
+        const imagesWorksheet = XLSX.utils.json_to_sheet(imagesData);
+        XLSX.utils.book_append_sheet(workbook, imagesWorksheet, "Images");
+      }
+      
+      // Generate file name with timestamp
+      const fileName = `notes_backup_${moment().format('YYYY-MM-DD_HH-mm-ss')}.xlsx`;
+      
+      // Write to file and download
+      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      FileSaver.saveAs(data, fileName);
+      
+      // If we have images, also create a zip file with images
+      if (imagesData.length > 0) {
+        alert(`Excel file downloaded. Note that images are only referenced in this Excel file. To include actual image files with your export, please use the 'Export with Images' option. (${imagesData.length} images detected)`);
+      } else {
+        alert("Excel backup downloaded successfully");
+      }
+    } catch (err) {
+      console.error("Error generating Excel:", err);
+      alert("Failed to generate Excel backup");
+    }
+  };
+  
+  // Function to store backup in Supabase
+  const storeBackupOnline = async (backupName = '') => {
+    try {
+      if (!notes || notes.length === 0) {
+        alert("No notes available to backup");
+        return;
+      }
+      
+      // If no name provided, generate one
+      if (!backupName) {
+        backupName = `Backup ${moment().format('YYYY-MM-DD HH:mm')}`;
+      }
+      
+      // Create backup data (encrypt sensitive data)
+      const backupData = {
+        notes: notes.map(note => ({
+          ...note,
+          // Don't re-encrypt already encrypted data
+          title: note.title, 
+          content: note.content
+        })),
+        timestamp: new Date().toISOString(),
+        note_count: notes.length
+      };
+      
+      // Store in Supabase
+      const { data, error } = await supabase
+        .from('note_backups')
+        .insert([{
+          user_id: user.id,
+          backup_data: backupData,
+          backup_type: 'manual',
+          backup_name: backupName
+        }]);
+        
+      if (error) {
+        console.error("Error storing backup:", error);
+        alert("Error storing backup online");
+        return false;
+      }
+      
+      alert("Backup stored online successfully");
+      fetchBackups(); // Refresh backup list
+      return true;
+    } catch (err) {
+      console.error("Error storing backup:", err);
+      alert("Failed to store backup online");
+      return false;
+    }
+  };
+  
+  // Function to fetch user's backups
+  const fetchBackups = async () => {
+    try {
+      if (!user) return;
+      
+      const { data, error } = await supabase
+        .from('note_backups')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_deleted', false)
+        .order('backup_date', { ascending: false });
+        
+      if (error) {
+        console.error("Error fetching backups:", error);
+        return;
+      }
+      
+      setBackupList(data || []);
+    } catch (err) {
+      console.error("Error fetching backups:", err);
+    }
+  };
+  
+  // Automatic backup function (to be called nightly or on conditions)
+  const performAutoBackup = async () => {
+    try {
+      // Only perform if user has enabled backups
+      if (!backupEnabled || !user) {
+        console.log("Auto backup skipped: disabled or no user");
+        return false;
+      }
+      
+      // Check if there are new notes since last backup
+      const lastBackup = backupList[0]; // Most recent backup
+      
+      if (lastBackup) {
+        // Find most recent note update
+        const latestNoteUpdate = notes.reduce((latest, note) => {
+          const noteDate = new Date(note.updated_at);
+          return noteDate > latest ? noteDate : latest;
+        }, new Date(0));
+        
+        // Compare with last backup date
+        const lastBackupDate = new Date(lastBackup.backup_date);
+        
+        // If no new updates, skip backup
+        if (latestNoteUpdate <= lastBackupDate) {
+          console.log("Auto backup skipped: no new updates");
+          return false;
+        }
+      }
+      
+      // Create backup data
+      const backupData = {
+        notes: notes.map(note => ({
+          ...note,
+          // Don't re-encrypt already encrypted data
+          title: note.title,
+          content: note.content
+        })),
+        timestamp: new Date().toISOString(),
+        note_count: notes.length
+      };
+      
+      // Store in Supabase
+      const { error } = await supabase
+        .from('note_backups')
+        .insert([{
+          user_id: user.id,
+          backup_data: backupData,
+          backup_type: 'auto',
+          backup_name: `Auto Backup ${moment().format('YYYY-MM-DD')}`
+        }]);
+        
+      if (error) {
+        console.error("Error in auto backup:", error);
+        return false;
+      }
+      
+      console.log("Auto backup completed successfully");
+      fetchBackups(); // Refresh backup list
+      return true;
+    } catch (err) {
+      console.error("Error in auto backup:", err);
+      return false;
+    }
+  };
+  
+  // Function to restore from a backup
+  const restoreFromBackup = async (backupId) => {
+    try {
+      // Confirm with user
+      const confirmRestore = window.confirm(
+        "This will replace your current notes with the backup. Continue?"
+      );
+      
+      if (!confirmRestore) return;
+      
+      // Get the specific backup
+      const { data: backupData, error: backupError } = await supabase
+        .from('note_backups')
+        .select('*')
+        .eq('id', backupId)
+        .single();
+        
+      if (backupError || !backupData) {
+        console.error("Error fetching backup:", backupError);
+        alert("Could not retrieve backup data");
+        return;
+      }
+      
+      // Extract notes from the backup
+      const notesFromBackup = backupData.backup_data.notes;
+      
+      // Update local state with backup data
+      setNotes(notesFromBackup);
+      
+      alert("Backup restored successfully");
+    } catch (err) {
+      console.error("Error restoring backup:", err);
+      alert("Failed to restore from backup");
+    }
+  };
+  
+  // Function to delete a backup
+  const deleteBackup = async (backupId) => {
+    try {
+      const confirmDelete = window.confirm("Are you sure you want to delete this backup?");
+      
+      if (!confirmDelete) return;
+      
+      // Mark as deleted instead of actually deleting
+      const { error } = await supabase
+        .from('note_backups')
+        .update({ is_deleted: true })
+        .eq('id', backupId);
+        
+      if (error) {
+        console.error("Error deleting backup:", error);
+        alert("Could not delete backup");
+        return;
+      }
+      
+      // Refresh backup list
+      fetchBackups();
+      alert("Backup deleted successfully");
+    } catch (err) {
+      console.error("Error deleting backup:", err);
+      alert("Failed to delete backup");
+    }
+  };
+
+  // Function to export notes with images as a ZIP file
+  const exportWithImages = async () => {
+    try {
+      if (!notes || notes.length === 0) {
+        alert("No notes available to export");
+        return;
+      }
+      
+      // Show a loading message
+      alert("Preparing export with images... This may take a moment.");
+      
+      // Create a new JSZip instance
+      const zip = new JSZip();
+      
+      // Create arrays to store data for both worksheets
+      const notesData = [];
+      const imagesData = [];
+      let imageIndex = 0;
+      const imagesFolder = zip.folder("images");
+      
+      // Process each note
+      for (let i = 0; i < notes.length; i++) {
+        const note = notes[i];
+        
+        // Decrypt note content
+        const decryptedTitle = decryptData(note.title);
+        const decryptedContent = decryptData(note.content);
+        
+        // Remove HTML tags for Excel text content
+        const contentWithoutTags = decryptedContent.replace(/<[^>]*>/g, ' ');
+        
+        // Check for images in the note content (both embedded and attached)
+        let imageReferences = '';
+        
+        // Check for image URL from upload
+        if (note.image_url) {
+          try {
+            // Get the image data
+            const { data: imageData, error: imageError } = await supabase
+              .storage
+              .from('notes-images')
+              .download(note.image_url.split('/').pop());
+            
+            if (imageError) {
+              console.error("Error downloading image:", imageError);
+            } else if (imageData) {
+              // Create a reference to the image in the Images sheet
+              imageIndex++;
+              const fileName = `image_${imageIndex}.jpg`;
+              imageReferences = `images/${fileName}`;
+              
+              // Add the image to the ZIP file
+              imagesFolder.file(fileName, imageData);
+              
+              // Add to images data
+              imagesData.push({
+                'Image #': imageIndex,
+                'Note Title': decryptedTitle,
+                'Image Type': 'Attached Image',
+                'File Path': `images/${fileName}`,
+                'Note Created': moment(note.created_at).format('YYYY-MM-DD HH:mm:ss')
+              });
+            }
+          } catch (imgErr) {
+            console.error("Error processing attached image:", imgErr);
+          }
+        }
+        
+        // Extract embedded images from HTML content
+        try {
+          // Create a temp div to parse HTML
+          const div = document.createElement('div');
+          div.innerHTML = decryptedContent;
+          
+          // Find all images in the content
+          const contentImages = div.querySelectorAll('img');
+          
+          for (let j = 0; j < contentImages.length; j++) {
+            const imgElement = contentImages[j];
+            const imgSrc = imgElement.src;
+            
+            if (imgSrc) {
+              try {
+                // Fetch the image data
+                const response = await fetch(imgSrc);
+                const blob = await response.blob();
+                
+                // Create a reference to the image in the Images sheet
+                imageIndex++;
+                const fileName = `image_${imageIndex}.jpg`;
+                
+                // Add to the reference string
+                if (imageReferences) {
+                  imageReferences += `, images/${fileName}`;
+                } else {
+                  imageReferences = `images/${fileName}`;
+                }
+                
+                // Add the image to the ZIP file
+                imagesFolder.file(fileName, blob);
+                
+                // Add to images data
+                imagesData.push({
+                  'Image #': imageIndex,
+                  'Note Title': decryptedTitle,
+                  'Image Type': 'Embedded in Content',
+                  'File Path': `images/${fileName}`,
+                  'Note Created': moment(note.created_at).format('YYYY-MM-DD HH:mm:ss')
+                });
+              } catch (fetchErr) {
+                console.error("Error fetching image:", fetchErr);
+              }
+            }
+          }
+        } catch (parseErr) {
+          console.error("Error parsing HTML content for images:", parseErr);
+        }
+        
+        // Add note data to the main worksheet
+        notesData.push({
+          'Title': decryptedTitle,
+          'Content': contentWithoutTags,
+          'Created': moment(note.created_at).format('YYYY-MM-DD HH:mm:ss'),
+          'Updated': moment(note.updated_at).format('YYYY-MM-DD HH:mm:ss'),
+          'Images': imageReferences || 'No images'
+        });
+      }
+      
+      // Create workbook
+      const workbook = XLSX.utils.book_new();
+      
+      // Add notes worksheet
+      const notesWorksheet = XLSX.utils.json_to_sheet(notesData);
+      XLSX.utils.book_append_sheet(workbook, notesWorksheet, "Notes");
+      
+      // Add images worksheet if we have any images
+      if (imagesData.length > 0) {
+        const imagesWorksheet = XLSX.utils.json_to_sheet(imagesData);
+        XLSX.utils.book_append_sheet(workbook, imagesWorksheet, "Images");
+      }
+      
+      // Generate Excel file
+      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      
+      // Add Excel file to ZIP
+      zip.file("notes_data.xlsx", excelBuffer);
+      
+      // Add a README file explaining the contents
+      zip.file("README.txt", 
+        "Notes Backup with Images\n\n" +
+        "This ZIP file contains:\n" +
+        "1. notes_data.xlsx - Excel file with all your notes\n" +
+        "2. images/ folder - Contains all images from your notes\n\n" +
+        `Generated on: ${moment().format('YYYY-MM-DD HH:mm:ss')}\n` +
+        `Total notes: ${notes.length}\n` +
+        `Total images: ${imageIndex}\n`
+      );
+      
+      // Generate the ZIP file
+      const zipContent = await zip.generateAsync({ type: "blob" });
+      
+      // Save the ZIP file
+      const fileName = `notes_backup_with_images_${moment().format('YYYY-MM-DD_HH-mm-ss')}.zip`;
+      FileSaver.saveAs(zipContent, fileName);
+      
+      alert("Backup with images downloaded successfully as a ZIP file");
+    } catch (err) {
+      console.error("Error exporting with images:", err);
+      alert("Failed to create backup with images: " + err.message);
+    }
+  };
+
   return (
     <div className="container">
       {user ? (
@@ -844,8 +1543,33 @@ export default function App() {
           <div className="sidebar">
             <h2>Welcome {user.username}</h2>
             <button className="sidebar-btn history-button" onClick={handleHistory}>
-              <FaHistory /> History
+              <FaHistory /> Your Notes
             </button>
+            <div className="backup-section">
+              <h3>Backup Options</h3>
+              <div className="backup-toggle">
+                <label>
+                  <input 
+                    type="checkbox" 
+                    checked={backupEnabled} 
+                    onChange={toggleBackupPreference} 
+                  />
+                  Enable Auto Backup
+                </label>
+              </div>
+              <button className="backup-btn" onClick={generateExcel}>
+                <FaDownload /> Export to Excel
+              </button>
+              <button className="backup-btn" onClick={exportWithImages}>
+                <FaFileArchive /> Export with Images
+              </button>
+              <button className="backup-btn" onClick={() => storeBackupOnline()}>
+                <FaCloudUploadAlt /> Backup Online
+              </button>
+              <button className="backup-btn" onClick={() => setShowBackupPanel(!showBackupPanel)}>
+                <FaCloudDownloadAlt /> Manage Backups
+              </button>
+            </div>
             <button className="sidebar-btn logout-button" onClick={handleLogout}>
               <FaSignOutAlt /> Logout
             </button>
@@ -866,10 +1590,41 @@ export default function App() {
                   <NotesHistory 
                     notes={notes} 
                     onViewNote={handleViewNote}
+                    onEditNote={handleEdit}
+                    onDeleteNote={handleDelete}
                     decryptData={decryptData}
                   />
                 </>
               )
+            ) : showBackupPanel ? (
+              <>
+                <button className="back-to-dashboard" onClick={() => setShowBackupPanel(false)}>
+                  <FaArrowLeft /> Back to Dashboard
+                </button>
+                <div className="backup-panel">
+                  <h2>Your Backups</h2>
+                  {backupList.length === 0 ? (
+                    <p>No backups available yet.</p>
+                  ) : (
+                    <div className="backup-list">
+                      {backupList.map(backup => (
+                        <div key={backup.id} className="backup-item">
+                          <div className="backup-info">
+                            <h3>{backup.backup_name}</h3>
+                            <p>Date: {new Date(backup.backup_date).toLocaleString()}</p>
+                            <p>Type: {backup.backup_type === 'auto' ? 'Automatic' : 'Manual'}</p>
+                            <p>Notes: {backup.backup_data.note_count}</p>
+                          </div>
+                          <div className="backup-actions">
+                            <button onClick={() => restoreFromBackup(backup.id)}>Restore</button>
+                            <button onClick={() => deleteBackup(backup.id)}>Delete</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
             ) : (
               <>
                 <h3>Add a New Note</h3>
@@ -898,7 +1653,14 @@ export default function App() {
                         playsInline 
                         muted
                         className="camera-preview"
-                        style={{ width: '100%', maxHeight: '400px', background: '#000' }}
+                        style={{ 
+                          width: '100%', 
+                          maxHeight: '400px', 
+                          background: '#000',
+                          display: 'block',
+                          borderRadius: '8px',
+                          boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
+                        }}
                       />
                       <div className="camera-controls">
                         <button onClick={takePicture} className="take-photo-btn">Take Photo</button>
@@ -916,35 +1678,35 @@ export default function App() {
                               className="image-preview" 
                             />
                             <button 
-                              onClick={handleClearImage} 
-                              className="clear-image-btn"
+                              className="clear-image-btn" 
+                              onClick={handleClearImage}
                             >
-                              <FaTimes />
+                              ×
                             </button>
                           </div>
                         )}
                       </div>
-                      
-                      <div className="button-row">
-                        <button onClick={pickImage} className="action-btn">
-                          <FaImage /> Pick Image
+                      <div className="image-buttons">
+                        <button onClick={pickImage} className="image-btn">
+                          <FaImage /> Choose Image
                         </button>
-                        <button onClick={activateCamera} className="action-btn">
+                        <button onClick={activateCamera} className="camera-btn">
                           <FaCamera /> Take Photo
-                        </button>
-                        <button onClick={saveNote} className="save-btn">
-                          <FaSave /> {editingId ? 'Update Note' : 'Add Note'}
                         </button>
                       </div>
                     </>
                   )}
+                  
+                  <button onClick={saveNote} className="save-btn">
+                    {editingId ? 'Update Note' : 'Save Note'}
+                  </button>
                 </div>
                 
-                <div className="notes-container">
-                  <h3>Your Notes</h3>
-                  <div className="notesGrid">
-                    {notes.map(renderItem)}
-                  </div>
+                <div className="view-history-prompt">
+                  <p>View and manage your notes in the <strong>Your Notes</strong> section.</p>
+                  <button onClick={handleHistory} className="view-history-btn">
+                    <FaHistory /> Go to Your Notes
+                  </button>
                 </div>
               </>
             )}
