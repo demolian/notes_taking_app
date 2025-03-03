@@ -64,7 +64,7 @@ export default function App() {
   const [actionType, setActionType] = useState(''); // New state to track action type
   const [noteToEdit, setNoteToEdit] = useState(null);
   const [fullImageUrl, setFullImageUrl] = useState(null); // State for full-screen image
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState(''); // Renamed from username to email for clarity
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSignUp, setIsSignUp] = useState(false); // State to toggle between login and sign-up
@@ -1017,19 +1017,27 @@ export default function App() {
   // Function to handle user login
   const handleLogin = async () => {
     try {
-      // First, try to authenticate with Supabase Auth if email is provided
-      if (username.includes('@')) {
-        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-          email: username,
-          password: password
-        });
-        
-        if (!authError && authData?.user) {
+      // Enhanced email validation with regex
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(email)) {
+        setError('Please enter a valid email address.');
+        return;
+      }
+      
+      // Try to authenticate with Supabase Auth (primary authentication method)
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password
+      });
+      
+      if (!authError && authData?.user) {
+        // Check if the email has been verified
+        if (authData.user.email_confirmed_at || process.env.REACT_APP_BYPASS_EMAIL_VERIFICATION === 'true') {
           // Store credentials securely for potential session refresh
           try {
             localStorage.setItem('userCredentials', JSON.stringify({
-              email: username,
-              password: password // Ideally encrypt this or use a token approach
+              email: email,
+              password: password
             }));
           } catch (e) {
             console.error("Could not store credentials:", e);
@@ -1039,19 +1047,33 @@ export default function App() {
           localStorage.setItem('user', JSON.stringify(authData.user));
           setUser(authData.user); // Set the logged-in user
           await fetchNotes(); // Fetch notes for the logged-in user
-          return;
+        } else {
+          setError('Please verify your email address before logging in. Check your inbox for the verification link.');
+          // Optionally provide a way to resend the verification email
+          const { error: resendError } = await supabase.auth.resend({
+            type: 'signup',
+            email: email
+          });
+          
+          if (!resendError) {
+            alert('A new verification email has been sent to your address.');
+          }
+          
+          // Sign out since email isn't verified
+          await supabase.auth.signOut();
         }
+        return;
       }
       
-      // Fall back to custom users table if Supabase Auth fails or username is not an email
+      // Fall back to custom users table if Supabase Auth fails
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('username', username)
+        .eq('username', email) // Username column in database contains email
         .single();
 
       if (error || !data) {
-        setError('Login error: User not found. Please sign up.');
+        setError('Login error: Email not found. Please sign up.');
         return;
       }
 
@@ -1060,8 +1082,8 @@ export default function App() {
         // Store credentials securely for potential session refresh
         try {
           localStorage.setItem('userCredentials', JSON.stringify({
-            username: username,
-            password: password // Ideally encrypt this or use a token approach
+            username: email, // This is now an email
+            password: password
           }));
         } catch (e) {
           console.error("Could not store credentials:", e);
@@ -1084,65 +1106,83 @@ export default function App() {
   const handleSignUp = async () => {
     try {
       // Validate inputs
-      if (!username || !password) {
-        setError('Please provide both username and email/password');
+      if (!email || !password) {
+        setError('Please provide both email and password');
         return;
       }
       
-      // Check if the username is an email address
-      const isEmail = username.includes('@');
+      // Enhanced email validation with regex
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(email)) {
+        setError('Please provide a valid email address');
+        return;
+      }
+      
+      // Block common disposable email domains
+      const disposableDomains = ['tempmail.com', 'fakeemail.com', 'mailinator.com', 'guerrillamail.com', 'sharklasers.com'];
+      const emailDomain = email.split('@')[1].toLowerCase();
+      if (disposableDomains.includes(emailDomain)) {
+        setError('Please use a permanent email address for registration');
+        return;
+      }
+      
+      // Password strength check
+      if (password.length < 8) {
+        setError('Password must be at least 8 characters long');
+        return;
+      }
+      
       let userId = null;
       let authUser = null;
       
-      // First, try to register with Supabase Auth if email is provided
-      if (isEmail) {
-        // Sign up with Supabase Auth
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: username,
-          password: password,
-          options: {
-            data: {
-              username: username.split('@')[0] // Use part before @ as username
-            }
+      // Register with Supabase Auth with email verification enabled
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: email,
+        password: password,
+        options: {
+          emailRedirectTo: window.location.origin, // Redirect to the app after verification
+          data: {
+            username: email.split('@')[0] // Use part before @ as username for display purposes
           }
-        });
-        
-        if (authError) {
-          console.error("Supabase Auth signup error:", authError);
-          setError('Sign-up error: ' + authError.message);
-          return;
         }
+      });
+      
+      if (authError) {
+        console.error("Supabase Auth signup error:", authError);
+        setError('Sign-up error: ' + authError.message);
+        return;
+      }
+      
+      if (authData?.user) {
+        // Store the auth user ID
+        userId = authData.user.id;
+        authUser = authData.user;
         
-        if (authData?.user) {
-          // Store the auth user ID
-          userId = authData.user.id;
-          authUser = authData.user;
-          // console.log("Successfully created auth user with ID:", userId);
-          
-          // Store credentials securely for potential session refresh
-          try {
-            localStorage.setItem('userCredentials', JSON.stringify({
-              email: username,
-              password: password
-            }));
-          } catch (e) {
-            console.error("Could not store credentials:", e);
-          }
-        } else {
-          console.warn("No auth user returned from signup");
+        // Store credentials securely for potential session refresh
+        try {
+          localStorage.setItem('userCredentials', JSON.stringify({
+            email: email,
+            password: password
+          }));
+        } catch (e) {
+          console.error("Could not store credentials:", e);
         }
+      } else {
+        console.warn("No auth user returned from signup");
+        setError('Sign-up error: Authentication failed');
+        return;
       }
       
       // Hash password for custom users table
       const hashedPassword = await bcrypt.hash(password, 10);
       
-      // Insert into custom users table
+      // Insert into custom users table - use email as username
       const userData = { 
-        username, 
+        username: email, // Store email in username column
         password: hashedPassword
       };
       
-      // If we have an auth user ID, associate it with this user
+      // Associate auth user ID with this user
       if (userId) {
         userData.auth_user_id = userId;
       }
@@ -1155,7 +1195,6 @@ export default function App() {
       if (error) {
         // If error, try to clean up auth user if it was created
         if (authUser) {
-          // Note: can't actually delete auth users through API, but we can flag them
           console.error("Error creating custom user, but auth user was created:", authUser.id);
         }
         
@@ -1166,39 +1205,26 @@ export default function App() {
       if (data && data.length > 0) {
         const userRecord = data[0];
         
-        // If we have an auth user, use that for RLS policies
-        if (authUser) {
-          // Store auth user in localStorage
-          localStorage.setItem('user', JSON.stringify({
-            ...userRecord,
-            id: authUser.id // Use auth user ID for database operations
-          }));
-          setUser({
-            ...userRecord,
-            id: authUser.id // Use auth user ID for database operations
-          });
-        } else {
-          // No auth user, just use the custom user
-          localStorage.setItem('user', JSON.stringify(userRecord));
-          setUser(userRecord);
-          
-          // For non-email users, store credentials differently
-          try {
-            localStorage.setItem('userCredentials', JSON.stringify({
-              username: username,
-              password: password
-            }));
-          } catch (e) {
-            console.error("Could not store credentials:", e);
-          }
-          
-          // Warn that some features might not work
-          alert('Sign-up successful! Note: Online backup feature requires signing up with an email address.');
-        }
+        // Store auth user in localStorage
+        localStorage.setItem('user', JSON.stringify({
+          ...userRecord,
+          id: authUser.id // Use auth user ID for database operations
+        }));
+        setUser({
+          ...userRecord,
+          id: authUser.id // Use auth user ID for database operations
+        });
         
-        await fetchNotes(); // Fetch notes for the new user
-        if (authUser) {
-          alert('Sign-up successful! Your account is fully set up with all features enabled.');
+        // Check if email confirmation is required
+        if (authData.user?.confirmationSent || !authData.user?.confirmed_at) {
+          // If email confirmation was sent or user is not confirmed
+          alert('Sign-up successful! Please check your email to verify your account before logging in.');
+          // Log user out until they verify email
+          handleLogout();
+        } else {
+          // If email confirmation is not required or already confirmed
+          await fetchNotes(); // Fetch notes for the new user
+          alert('Sign-up successful! Your account is now ready to use.');
         }
       } else {
         setError('Sign-up error: No user data returned.');
@@ -2161,16 +2187,18 @@ export default function App() {
           <div className="login-form">
             <h2>{isSignUp ? 'Sign Up' : 'Login'}</h2>
             <input
-              type="text"
-              placeholder="Enter your Gmail only"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              type="email"
+              placeholder="Enter your email address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
             />
             <input
               type="password"
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              required
             />
             <button onClick={isSignUp ? handleSignUp : handleLogin}>
               {isSignUp ? 'Sign Up' : 'Login'}

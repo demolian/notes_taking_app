@@ -16,6 +16,30 @@ const Login = ({ onLogin, onSignUp }) => {
       return;
     }
 
+    // Enhanced email validation with regex
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    
+    // For sign-up, add additional validation
+    if (isSignUp) {
+      // Password strength check
+      if (password.length < 8) {
+        setError('Password must be at least 8 characters long.');
+        return;
+      }
+      
+      // Block common disposable email domains
+      const disposableDomains = ['tempmail.com', 'fakeemail.com', 'mailinator.com', 'guerrillamail.com', 'sharklasers.com'];
+      const emailDomain = email.split('@')[1].toLowerCase();
+      if (disposableDomains.includes(emailDomain)) {
+        setError('Please use a permanent email address for registration.');
+        return;
+      }
+    }
+
     if (isSignUp) {
       onSignUp(email, password); // Call the sign-up function
     } else {
@@ -29,14 +53,16 @@ const Login = ({ onLogin, onSignUp }) => {
       {error && <p className="error">{error}</p>}
       <form onSubmit={handleSubmit}>
         <div className="form-group">
-          <label htmlFor="email">Email:</label>
+          <label htmlFor="email">Email Address:</label>
           <input
             type="email"
             id="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            placeholder="your@email.com"
             required
           />
+          <small className="form-text">Please use a valid email address that you can access.</small>
         </div>
         <div className="form-group">
           <label htmlFor="password">Password:</label>
@@ -45,8 +71,11 @@ const Login = ({ onLogin, onSignUp }) => {
             id="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            minLength={isSignUp ? 8 : undefined}
+            placeholder={isSignUp ? "Minimum 8 characters" : "Enter your password"}
             required
           />
+          {isSignUp && <small className="form-text">Password must be at least 8 characters long.</small>}
         </div>
         <button type="submit">{isSignUp ? 'Sign Up' : 'Login'}</button>
       </form>
