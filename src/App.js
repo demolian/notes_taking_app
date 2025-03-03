@@ -32,6 +32,12 @@ function encryptData(data) {
 // Function to decrypt data
 function decryptData(ciphertext) {
   try {
+    // Check if the data is encrypted by looking for a specific pattern or prefix
+    if (!ciphertext || !ciphertext.startsWith('U2FsdGVkX1')) {
+      // Assuming 'U2FsdGVkX1' is a common prefix for encrypted data
+      return ciphertext; // Return the original data if it's not encrypted
+    }
+
     const bytes = CryptoJS.AES.decrypt(ciphertext, secretKey);
     const decryptedData = bytes.toString(CryptoJS.enc.Utf8);
     
@@ -42,7 +48,7 @@ function decryptData(ciphertext) {
     return JSON.parse(decryptedData); // Ensure the decrypted data is parsed correctly
   } catch (error) {
     console.error('Decryption error:', error);
-    return null; // Return null if decryption fails
+    return ciphertext; // Return the original data if decryption fails
   }
 }
 
@@ -382,10 +388,9 @@ export default function App() {
         throw error;
       }
 
-      // Get public URL
-      const publicUrl = supabase.storage
-        .from('notes-images')
-        .getPublicUrl(fileName).data.publicUrl;
+      // Construct the public URL using the specified structure
+      const publicUrl = `${process.env.REACT_APP_SUPABASE_URL}/storage/v1/object/public/notes-images/${fileName}`;
+      console.log('Image uploaded, public URL:', publicUrl); // Log the URL when adding
 
       return publicUrl; // Return the public URL
     } catch (err) {
@@ -709,15 +714,11 @@ export default function App() {
       if (session?.user?.id) {
         // Use the auth user ID for the note
         authUserId = session.user.id;
-        // console.log("Using Supabase auth ID for saving note:", authUserId);
       } else {
-        // If no active session, fall back to stored user ID
-        // console.log("No active auth session, falling back to user ID:", user.id);
         authUserId = user.id;
       }
     } catch (sessionErr) {
       console.error("Error checking auth session:", sessionErr);
-      // Fall back to user ID if we can't get the session
       authUserId = user.id;
     }
     
@@ -741,18 +742,16 @@ export default function App() {
     if (image instanceof Blob || image instanceof File) {
       imageUrlToSave = await uploadImage(image);
     } else if (imageUrl) {
-      // If imageUrl exists and it's not from Supabase (doesn't contain storage.supabaseusercontent), 
-      // it's a local preview URL and we need to upload it
       if (imageUrl.startsWith('blob:') || !imageUrl.includes('storage.supabaseusercontent')) {
-        // This is a blob URL from a new image that hasn't been uploaded yet
         if (image) {
           imageUrlToSave = await uploadImage(image);
         }
       } else {
-        // This is an existing image from Supabase, keep using it
         imageUrlToSave = imageUrl;
       }
     }
+
+    console.log('Image URL to save in note:', imageUrlToSave); // Log the URL when storing in note
 
     const timestamp = new Date();
     const formattedDate = timestamp.toLocaleString('en-GB', {
@@ -766,6 +765,7 @@ export default function App() {
 
     const encryptedTitle = encryptData(title); // Encrypt title
     const encryptedContent = encryptData(content); // Encrypt content
+    const encryptedImageUrl = imageUrlToSave ? encryptData(imageUrlToSave) : null; // Encrypt image URL
 
     if (editingId) {
       const { error } = await supabase
@@ -773,44 +773,16 @@ export default function App() {
         .update({
           title: encryptedTitle,
           content: encryptedContent,
-          image_url: imageUrlToSave,
+          image_url: encryptedImageUrl, // Use encrypted image URL
           updated_at: timestamp.toISOString(),
-          user_id: authUserId,  // Use the auth user ID instead of user.id
+          user_id: authUserId,
         })
         .eq('id', editingId);
 
       if (error) {
         console.error("Error updating note:", error);
-        
-        if (error.code === '23503' || error.message?.includes("violates foreign key constraint")) {
-          alert("Authentication error: Your account is not properly linked with Supabase Auth. Please log out and sign up again with an email address.");
-        } else {
-          alert('Error updating note: ' + error.message);
-        }
+        alert('Error updating note: ' + error.message);
         return;
-      }
-
-      // Delete old image if it was replaced or removed
-      if (oldImageUrl && oldImageUrl !== imageUrlToSave && oldImageUrl.includes('storage.supabaseusercontent')) {
-        try {
-          // Extract the file path from the URL
-          const oldImagePath = oldImageUrl.split('/').pop();
-          
-          if (oldImagePath) {
-            // console.log('Attempting to delete old image:', oldImagePath);
-            const { error: storageError } = await supabase.storage
-              .from('notes-images')
-              .remove([oldImagePath]);
-
-            if (storageError) {
-              console.error('Error deleting old image from storage:', storageError);
-            } else {
-              // console.log('Old image deleted successfully from storage');
-            }
-          }
-        } catch (err) {
-          console.error('Error processing image deletion:', err);
-        }
       }
     } else {
       const { error } = await supabase
@@ -818,19 +790,14 @@ export default function App() {
         .insert([{
           title: encryptedTitle,
           content: encryptedContent,
-          image_url: imageUrlToSave,
+          image_url: encryptedImageUrl, // Use encrypted image URL
           created_at: formattedDate,
           updated_at: formattedDate,
-          user_id: authUserId,  // Use the auth user ID instead of user.id
+          user_id: authUserId,
         }]);
       if (error) {
         console.error("Error creating note:", error);
-        
-        if (error.code === '23503' || error.message?.includes("violates foreign key constraint")) {
-          alert("Authentication error: Your account is not properly linked with Supabase Auth. Please log out and sign up again with an email address.");
-        } else {
-          alert('Error creating note: ' + error.message);
-        }
+        alert('Error creating note: ' + error.message);
         return;
       }
     }
@@ -855,11 +822,30 @@ export default function App() {
   const handleEdit = (note) => {
     const confirmEdit = window.confirm("Are you sure you want to edit this note?");
     if (confirmEdit) {
-      setTitle(decryptData(note.title)); // Set the title for editing
-      setContent(decryptData(note.content)); // Set the content for editing
-      setEditingId(note.id); // Set the ID of the note being edited
-      setImageUrl(note.image_url); // Set the image URL if it exists
-      setShowHistory(false); // Hide history view when editing
+      try {
+        setTitle(decryptData(note.title)); // Set the title for editing
+        setContent(decryptData(note.content)); // Set the content for editing
+        setEditingId(note.id); // Set the ID of the note being edited
+        
+        // Decrypt image URL if it exists
+        if (note.image_url) {
+          try {
+            const decryptedImageUrl = decryptData(note.image_url);
+            console.log('Decrypted image URL for editing:', decryptedImageUrl);
+            setImageUrl(decryptedImageUrl);
+          } catch (imgError) {
+            console.error('Error decrypting image URL for editing:', imgError);
+            setImageUrl(null); // Clear image URL if decryption fails
+          }
+        } else {
+          setImageUrl(null);
+        }
+        
+        setShowHistory(false); // Hide history view when editing
+      } catch (error) {
+        console.error('Error preparing note for editing:', error);
+        alert('Failed to edit note. Please try again.');
+      }
     }
   };
 
@@ -867,165 +853,164 @@ export default function App() {
     const correctPassword = process.env.REACT_APP_ADMIN_PASSWORD;
 
     if (password.trim() !== correctPassword) {
-      alert('Incorrect password.');
-      setShowModal(false);
-      return;
+        alert('Incorrect password.');
+        setShowModal(false);
+        return;
     }
 
     if (actionType === 'delete') {
-      await deleteNote(noteToDelete);
+        await deleteNote(noteToDelete);
     } else if (actionType === 'edit') {
-      startEdit(noteToEdit);
+        // Use the existing logic from handleEdit
+        const note = noteToEdit; // Assuming noteToEdit is set correctly
+        setTitle(decryptData(note.title)); // Set the title for editing
+        setContent(decryptData(note.content)); // Set the content for editing
+        setEditingId(note.id); // Set the ID of the note being edited
+        setImageUrl(note.image_url); // Set the image URL if it exists
+        setShowHistory(false); // Hide history view when editing
     }
 
     setShowModal(false);
   };
 
-  // Delete a note
-  async function deleteNote(id) {
+  // Function to delete an image from Supabase Storage
+  async function deleteImage(imageUrl) {
     try {
-      // Get the note to retrieve the image URL and content
-      const { data: noteData, error: noteError } = await supabase
-        .from('notes')
-        .select('image_url, content')
-        .eq('id', id)
-        .single();
+        const urlParts = imageUrl.split('/');
+        const imagePath = urlParts[urlParts.length - 1]; // Extract the last part of the URL as the file path
+        console.log('Attempting to delete image:', imagePath);
 
-      if (noteError) {
-        alert('Error getting note: ' + noteError.message);
-        return;
-      }
-
-      const imageUrl = noteData?.image_url;
-      const noteContent = noteData?.content;
-      let allImagesToDelete = []; // Initialize the array here
-
-      // Add attached image to deletion list if it exists
-      if (imageUrl && imageUrl.includes('storage.supabaseusercontent')) {
-        try {
-          // Extract the file path from the URL
-          const urlParts = imageUrl.split('/');
-          const imagePath = urlParts[urlParts.length - 1];
-          
-          if (imagePath) {
-            allImagesToDelete.push(imagePath);
-          }
-        } catch (err) {
-          console.error('Error processing attached image path:', err);
-        }
-      }
-
-      // Extract and add embedded images from content to deletion list
-      if (noteContent) {
-        try {
-          // Decrypt the content to get the HTML
-          const decryptedContent = decryptData(noteContent);
-          
-          // Create a temp div to parse HTML
-          const div = document.createElement('div');
-          div.innerHTML = decryptedContent;
-          
-          // Find all images in the content
-          const contentImages = div.querySelectorAll('img');
-          
-          for (let i = 0; i < contentImages.length; i++) {
-            const imgElement = contentImages[i];
-            const imgSrc = imgElement.src;
-            
-            if (imgSrc && imgSrc.includes('storage.supabaseusercontent')) {
-              const urlParts = imgSrc.split('/');
-              const imagePath = urlParts[urlParts.length - 1];
-              
-              if (imagePath && !allImagesToDelete.includes(imagePath)) {
-                allImagesToDelete.push(imagePath);
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Error extracting embedded images from content:', err);
-        }
-      }
-
-      // Delete the note
-      const { error } = await supabase
-        .from('notes')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        alert('Error deleting note: ' + error.message);
-        return;
-      }
-
-      // Delete the images from storage if any exist
-      if (allImagesToDelete.length > 0) {
-        try {
-          const { error: storageError } = await supabase.storage
+        const { error } = await supabase.storage
             .from('notes-images')
-            .remove(allImagesToDelete);
-            
-          if (storageError) {
-            console.error('Error deleting images from storage:', storageError);
-          } else {
-            console.log(`${allImagesToDelete.length} images deleted from storage`);
-          }
-        } catch (err) {
-          console.error('Error during batch image deletion:', err);
-        }
-      }
+            .remove([imagePath]); // Directly remove the image using its path
 
-      // Refresh notes without reloading
-      refreshNotes();
+        if (error) {
+            console.error('Error deleting image from storage:', error);
+            alert('Failed to delete image from storage.');
+        } else {
+            console.log('Image successfully deleted from storage.');
+            alert('Image deleted successfully.');
+        }
     } catch (err) {
-      console.error('Error in deleteNote function:', err);
-      alert('An error occurred while deleting the note. Please try again.');
+        console.error('Error during image deletion:', err);
+        alert('An error occurred while deleting the image.');
     }
   }
 
-  // Start editing a note
-  function startEdit(note) {
-    const decryptedTitle = decryptData(note.title); // Decrypt title
-    const decryptedContent = decryptData(note.content); // Decrypt content
+  // Modify the deleteNote function
+  async function deleteNote(id) {
+    try {
+        console.log('deleteNote function called with ID:', id);
 
-    setTitle(decryptedTitle); // Set decrypted title
-    setContent(decryptedContent); // Set decrypted content
-    setImageUrl(note.image_url); // Set image URL
-    setEditingId(note.id); // Set editing ID
+        // Get the note to retrieve the image URL and content
+        const { data: noteData, error: noteError } = await supabase
+            .from('notes')
+            .select('image_url, content')
+            .eq('id', id)
+            .single();
+
+        if (noteError) {
+            console.error('Error getting note:', noteError);
+            alert('Error getting note: ' + noteError.message);
+            return;
+        }
+
+        console.log('Note data retrieved:', noteData);
+
+        // Decrypt the image URL
+        const imageUrl = noteData?.image_url ? decryptData(noteData.image_url) : null;
+        console.log('Decrypted Image URL:', imageUrl);
+
+        // If the image URL is valid and points to Supabase storage, delete the image first
+        if (imageUrl && imageUrl.includes('storage/v1/object/public/notes-images/')) {
+            console.log('Attempting to delete image:', imageUrl);
+            const urlParts = imageUrl.split('/');
+            const imagePath = urlParts[urlParts.length - 1]; // Extract the last part of the URL as the file path
+
+            const { error: storageError } = await supabase.storage
+                .from('notes-images')
+                .remove([imagePath]); // Directly remove the image using its path
+
+            if (storageError) {
+                console.error('Error deleting image from storage:', storageError);
+                alert('Failed to delete image from storage.');
+            } else {
+                console.log('Image successfully deleted from storage.');
+            }
+        } else {
+            console.log('Image URL is not valid or does not point to Supabase storage.');
+        }
+
+        // Delete the note
+        const { error } = await supabase
+            .from('notes')
+            .delete()
+            .eq('id', id);
+
+        if (error) {
+            console.error('Error deleting note:', error);
+            alert('Error deleting note: ' + error.message);
+            return;
+        }
+
+        console.log('Note successfully deleted.');
+        // Refresh notes without reloading
+        refreshNotes();
+    } catch (err) {
+        console.error('Error in deleteNote function:', err);
+        alert('An error occurred while deleting the note. Please try again.');
+    }
   }
 
-  // Render a note item
+  // Render a note item with an option to delete the image
   const renderItem = (item) => {
     try {
-      const title = decryptData(item.title);
-      const content = decryptData(item.content);
-      const imageUrl = item.image_url;
+        // Decrypt the title and content
+        const title = decryptData(item.title);
+        const content = decryptData(item.content);
+        
+        // Decrypt the image URL with additional error handling
+        let imageUrl = null;
+        try {
+            if (item.image_url) {
+                imageUrl = decryptData(item.image_url);
+                console.log('Successfully decrypted Image URL:', imageUrl);
+            }
+        } catch (imgError) {
+            console.error('Error decrypting image URL:', imgError);
+            // Continue rendering without the image if decryption fails
+        }
 
-      if (!title || !content) {
-        return null; // Skip rendering if decryption fails
-      }
+        if (!title || !content) {
+            console.error('Title or content decryption failed');
+            return null; // Skip rendering if decryption fails
+        }
 
-      return (
-        <div className="noteCard" key={item.id}>
-          <h4>{title}</h4>
-          <div className="note-content" dangerouslySetInnerHTML={{ __html: content }}></div>
-          {imageUrl && (
-            <img 
-              src={imageUrl} 
-              alt="Note related" 
-              style={{ maxWidth: '100%', height: 'auto' }} 
-              onClick={() => setFullImageUrl(imageUrl)} // Add click handler to view full image
-            />
-          )}
-          <p>Created At: {item.created_at}</p>
-          <div className="note-actions">
-            <button onClick={() => handleEdit(item)} className="edit-btn">Edit</button>
-            <button onClick={() => handleDelete(item.id)} className="delete-btn">Delete</button>
-          </div>
-        </div>
-      );
+        return (
+            <div className="noteCard" key={item.id}>
+                <h4>{title}</h4>
+                <div className="note-content" dangerouslySetInnerHTML={{ __html: content }}></div>
+                {imageUrl && (
+                    <div>
+                        <img 
+                            src={imageUrl} 
+                            alt="Note related" 
+                            style={{ maxWidth: '100%', height: 'auto' }} 
+                            onClick={() => setFullImageUrl(imageUrl)} 
+                        />
+                        <button onClick={() => deleteImage(imageUrl)} className="delete-image-btn">Delete Image</button>
+                    </div>
+                )}
+                <p>Created At: {item.created_at}</p>
+                <div className="note-actions">
+                    <button onClick={() => handleEdit(item)} className="edit-btn">Edit</button>
+                    <button onClick={() => handleDelete(item.id)} className="delete-btn">Delete</button>
+                </div>
+            </div>
+        );
     } catch (error) {
-      console.error("Error rendering note:", error);
-      return null; // Return null if there's an error
+        console.error("Error rendering note:", error);
+        return null; // Return null if there's an error
     }
   };
 
@@ -1268,7 +1253,21 @@ export default function App() {
   
   // Function to view a note from history
   const handleViewNote = (note) => {
-    setSelectedNote(note); // Set the selected note
+    try {
+      // Create a copy of the note with decrypted values
+      const decryptedNote = {
+        ...note,
+        title: decryptData(note.title),
+        content: decryptData(note.content),
+        image_url: note.image_url ? decryptData(note.image_url) : null
+      };
+      
+      console.log('Viewing note with decrypted image URL:', decryptedNote.image_url);
+      setSelectedNote(decryptedNote); // Set the selected note with decrypted values
+    } catch (error) {
+      console.error('Error decrypting note for viewing:', error);
+      alert('Failed to view note. Please try again.');
+    }
   };
   
   // Function to go back from note detail to history
@@ -1897,6 +1896,7 @@ export default function App() {
           try {
             const urlParts = note.image_url.split('/');
             const imagePath = urlParts[urlParts.length - 1];
+            console.log("imagePath1", imagePath);
             
             if (imagePath && !allImagesToDelete.includes(imagePath)) {
               allImagesToDelete.push(imagePath);
@@ -1926,6 +1926,7 @@ export default function App() {
               if (imgSrc && imgSrc.includes('storage.supabaseusercontent')) {
                 const urlParts = imgSrc.split('/');
                 const imagePath = urlParts[urlParts.length - 1];
+                console.log("imagePath", imagePath);
                 
                 if (imagePath && !allImagesToDelete.includes(imagePath)) {
                   allImagesToDelete.push(imagePath);

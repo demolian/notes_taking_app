@@ -5,10 +5,12 @@ import './NoteDetail.css';
 const NoteDetail = ({ note, onBack, decryptData }) => {
   const [showFullImage, setShowFullImage] = useState(false);
   
-  // Decrypt note data
-  const title = decryptData(note.title);
-  const content = decryptData(note.content);
+  // Note data is already decrypted in handleViewNote, so we use it directly
+  const title = note.title;
+  const content = note.content;
   const imageUrl = note.image_url;
+  
+  console.log('Rendering note detail with image URL:', imageUrl);
 
   return (
     <div className="note-detail-container">
