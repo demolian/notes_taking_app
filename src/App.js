@@ -277,6 +277,13 @@ export default function App() {
     }
   }, [user, backupEnabled, notes]);
 
+  useEffect(() => {
+    // Fetch backups when the component mounts
+    if (user) {
+      fetchBackups();
+    }
+  }, [user]);
+
   // Fetch notes from Supabase
   const fetchNotes = async () => {
     if (!user) return; // Only fetch notes if a user is logged in
@@ -891,7 +898,7 @@ export default function App() {
 
       const imageUrl = noteData?.image_url;
       const noteContent = noteData?.content;
-      let imagesToDelete = [];
+      let allImagesToDelete = []; // Initialize the array here
 
       // Add attached image to deletion list if it exists
       if (imageUrl && imageUrl.includes('storage.supabaseusercontent')) {
@@ -901,7 +908,7 @@ export default function App() {
           const imagePath = urlParts[urlParts.length - 1];
           
           if (imagePath) {
-            imagesToDelete.push(imagePath);
+            allImagesToDelete.push(imagePath);
           }
         } catch (err) {
           console.error('Error processing attached image path:', err);
@@ -929,8 +936,8 @@ export default function App() {
               const urlParts = imgSrc.split('/');
               const imagePath = urlParts[urlParts.length - 1];
               
-              if (imagePath && !imagesToDelete.includes(imagePath)) {
-                imagesToDelete.push(imagePath);
+              if (imagePath && !allImagesToDelete.includes(imagePath)) {
+                allImagesToDelete.push(imagePath);
               }
             }
           }
@@ -951,19 +958,19 @@ export default function App() {
       }
 
       // Delete the images from storage if any exist
-      if (imagesToDelete.length > 0) {
+      if (allImagesToDelete.length > 0) {
         try {
           const { error: storageError } = await supabase.storage
             .from('notes-images')
-            .remove(imagesToDelete);
-
+            .remove(allImagesToDelete);
+            
           if (storageError) {
             console.error('Error deleting images from storage:', storageError);
           } else {
-            console.log(`${imagesToDelete.length} images deleted from storage`);
+            console.log(`${allImagesToDelete.length} images deleted from storage`);
           }
         } catch (err) {
-          console.error('Error processing image deletion:', err);
+          console.error('Error during batch image deletion:', err);
         }
       }
 
@@ -1439,93 +1446,43 @@ export default function App() {
   };
   
   // Function to store backup in Supabase
-  const storeBackupOnline = async (backupName = '') => {
+  const storeBackupOnline = async () => {
     try {
       // Check if there are notes to backup
       if (!notes || notes.length === 0) {
         alert("No notes available to backup");
         return false;
       }
-      
+
       // Ensure user is authenticated
       if (!user || !user.id) {
         console.error("User not authenticated properly");
         alert("Authentication error: Please log out and log back in");
         return false;
       }
-      
-      // If no name provided, generate one
-      if (!backupName) {
-        backupName = `Backup ${moment().format('YYYY-MM-DD HH:mm')}`;
-      }
-      
-      // Create backup data (encrypt sensitive data)
+
+      // Generate a backup name
+      const backupName = `Backup ${moment().format('YYYY-MM-DD HH:mm')}`;
+
+      // Create backup data (ensure sensitive data is encrypted)
       const backupData = {
         notes: notes.map(note => ({
           ...note,
-          // Don't re-encrypt already encrypted data
-          title: note.title, 
-          content: note.content
+          title: note.title, // Assuming title is already encrypted
+          content: note.content // Assuming content is already encrypted
         })),
         timestamp: new Date().toISOString(),
         note_count: notes.length
       };
-      
-      // console.log("Attempting to store backup with user_id:", user.id);
-      
+
       // Get the actual auth user ID from Supabase
-      let authUserId = null;
-      try {
-        // Get the current session
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (session?.user?.id) {
-          // Use the auth user ID for the backup
-          authUserId = session.user.id;
-          // console.log("Using Supabase auth ID for backup:", authUserId);
-        } else {
-          // console.log("No auth session found, trying to sign in with stored credentials");
-          
-          // Try to sign in with stored credentials to get a valid auth ID
-          const storedCredentials = localStorage.getItem('userCredentials');
-          if (storedCredentials) {
-            try {
-              const creds = JSON.parse(storedCredentials);
-              
-              if (creds.email && creds.password) {
-                // Try to sign in with email/password
-                const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-                  email: creds.email,
-                  password: creds.password
-                });
-                
-                if (!signInError && signInData?.user?.id) {
-                  authUserId = signInData.user.id;
-                  // console.log("Re-authenticated successfully, using auth ID:", authUserId);
-                }
-              }
-            } catch (credError) {
-              console.error("Error processing stored credentials:", credError);
-            }
-          }
-          
-          // If still no auth ID, we need to handle this differently
-          if (!authUserId) {
-            alert("Authentication error: Your account is not properly linked with Supabase Auth. Please contact support or sign up with an email address.");
-            return false;
-          }
-        }
-      } catch (sessionErr) {
-        console.error("Error getting auth session:", sessionErr);
-        alert("Failed to authenticate with Supabase. Please log out and log back in.");
-        return false;
-      }
-      
-      // Store in Supabase with more detailed error handling
+      let authUserId = user.id;
+
+      // Store in Supabase
       const { data, error } = await supabase
         .from('note_backups')
         .insert([{
-          user_id: authUserId, // Use the authenticated user ID from Supabase Auth
+          user_id: authUserId,
           backup_data: backupData,
           backup_type: 'manual',
           backup_name: backupName,
@@ -1533,36 +1490,19 @@ export default function App() {
           backup_date: new Date().toISOString()
         }])
         .select();
-        
+
       if (error) {
         console.error("Error storing backup:", error);
-        
-        // More specific error messages
-        if (error.code === '42501' || error.code === 'PGRST116') {
-          alert("Permission denied. Your account doesn't have permission to create backups. This may be due to a Row Level Security policy issue.");
-        } else if (error.code === '23505') {
-          alert("A backup with the same date already exists. Please try again in a moment.");
-        } else if (error.code === '23503' || error.message?.includes("violates foreign key constraint")) {
-          // Handle foreign key constraint specifically
-          alert("Error: Your user account is not properly registered in the Supabase authentication system. Please log out, then sign up again using your email address.");
-          return false;
-        } else if (error.status === 401 || error.code === 'PGRST301') {
-          // If we get a 401, we might need to re-authenticate the user
-          alert("Authentication error: Your session has expired. Please log out and log back in to refresh your authentication.");
-          return false;
-        } else {
-          alert(`Error storing backup: ${error.message || 'Unknown error'}`);
-        }
+        alert(`Error storing backup: ${error.message || 'Unknown error'}`);
         return false;
       }
-      
+
       if (!data || data.length === 0) {
         console.error("No data returned from backup insertion");
         alert("Backup may not have been stored correctly");
         return false;
       }
-      
-      // console.log("Backup stored successfully:", data);
+
       alert("Backup stored online successfully");
       fetchBackups(); // Refresh backup list
       return true;
@@ -1578,27 +1518,23 @@ export default function App() {
     try {
       // Check if user is logged in
       if (!user || !user.id) {
-        // console.log("No user logged in, skipping backup fetch");
+        console.log("No user logged in, skipping backup fetch");
         return;
       }
-      
-      // console.log("Fetching backups for user ID:", user.id);
-      
-      // Attempt to fetch backups
+
+      // Fetch backups
       const { data, error } = await supabase
         .from('note_backups')
         .select('*')
         .eq('user_id', user.id)
         .eq('is_deleted', false)
         .order('backup_date', { ascending: false });
-        
+
       if (error) {
         console.error("Error fetching backups:", error);
-        // Don't show alert to user as this might be called in the background
         return;
       }
-      
-      // console.log(`Successfully fetched ${data?.length || 0} backups`);
+
       setBackupList(data || []);
     } catch (err) {
       console.error("Error fetching backups:", err);
@@ -1696,9 +1632,35 @@ export default function App() {
       // Extract notes from the backup
       const notesFromBackup = backupData.backup_data.notes;
       
+      // Delete existing notes
+      const { error: deleteError } = await supabase
+        .from('notes')
+        .delete()
+        .eq('user_id', user.id);
+
+      if (deleteError) {
+        console.error("Error deleting existing notes:", deleteError);
+        alert("Failed to delete existing notes");
+        return;
+      }
+
+      // Insert notes from backup
+      const { error: insertError } = await supabase
+        .from('notes')
+        .insert(notesFromBackup.map(note => ({
+          ...note,
+          user_id: user.id // Ensure the user_id is set correctly
+        })));
+
+      if (insertError) {
+        console.error("Error inserting notes from backup:", insertError);
+        alert("Failed to restore notes from backup");
+        return;
+      }
+
       // Update local state with backup data
       setNotes(notesFromBackup);
-      
+
       alert("Backup restored successfully");
     } catch (err) {
       console.error("Error restoring backup:", err);
