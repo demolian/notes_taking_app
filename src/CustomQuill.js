@@ -2,42 +2,13 @@ import React, { useRef, useEffect, forwardRef, useState } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
-// This is a wrapper component for ReactQuill that works with React 19
-// It addresses the findDOMNode deprecation and React 19 compatibility issues
+// This is a wrapper component for ReactQuill that works with React 18
+// It addresses the findDOMNode deprecation and ensures good compatibility
 const CustomQuill = forwardRef(({ value, onChange, placeholder, modules, formats, className }, ref) => {
   const quillRef = useRef(null);
   const containerRef = useRef(null);
   const editorRef = useRef(null);
-  const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState(null);
-
-  // Polyfill for ReactQuill to work with React 19
-  useEffect(() => {
-    // Apply patches to workaround ReactQuill compatibility issues
-    try {
-      const originalCreateReactClass = React.createClass;
-      if (!React.createClass && !window._reactQuillPolyfillApplied) {
-        // Only apply once
-        window._reactQuillPolyfillApplied = true;
-        
-        // Create a polyfill for React.createClass which react-quill uses internally
-        React.createClass = function(spec) {
-          const Constructor = function(props) {
-            this.props = props;
-            this.state = this.getInitialState ? this.getInitialState() : {};
-          };
-          
-          Constructor.prototype = Object.assign({}, spec);
-          return Constructor;
-        };
-        
-        console.info("Applied React.createClass polyfill for ReactQuill");
-      }
-    } catch (err) {
-      console.error("Error applying React polyfills:", err);
-      setError("Error initializing editor. Please try refreshing the page.");
-    }
-  }, []);
 
   useEffect(() => {
     // Expose the Quill instance and editor element through the ref
@@ -58,8 +29,6 @@ const CustomQuill = forwardRef(({ value, onChange, placeholder, modules, formats
             // Add extra properties that ReactQuill might expect
             editor
           };
-          
-          setInitialized(true);
         }
       } catch (err) {
         console.error('Error accessing Quill editor:', err);
