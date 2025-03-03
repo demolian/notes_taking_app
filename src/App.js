@@ -2199,7 +2199,7 @@ export default function App() {
             <h2>{isSignUp ? 'Sign Up' : 'Login'}</h2>
             <input
               type="text"
-              placeholder="Username"
+              placeholder="Enter your Gmail only"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
