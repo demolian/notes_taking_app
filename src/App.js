@@ -877,7 +877,7 @@ export default function App() {
         if (note.image_url) {
           try {
             const decryptedImageUrl = decryptData(note.image_url);
-            console.log('Decrypted image URL for editing:', decryptedImageUrl);
+            // console.log('Decrypted image URL for editing:', decryptedImageUrl);
             setImageUrl(decryptedImageUrl);
           } catch (imgError) {
             console.error('Error decrypting image URL for editing:', imgError);
@@ -924,7 +924,7 @@ export default function App() {
     try {
         const urlParts = imageUrl.split('/');
         const imagePath = urlParts[urlParts.length - 1]; // Extract the last part of the URL as the file path
-        console.log('Attempting to delete image:', imagePath);
+        // console.log('Attempting to delete image:', imagePath);
 
         const { error } = await supabase.storage
             .from('notes-images')
@@ -934,7 +934,7 @@ export default function App() {
             console.error('Error deleting image from storage:', error);
             alert('Failed to delete image from storage.');
         } else {
-            console.log('Image successfully deleted from storage.');
+            // console.log('Image successfully deleted from storage.');
             alert('Image deleted successfully.');
         }
     } catch (err) {
@@ -946,7 +946,7 @@ export default function App() {
   // Modify the deleteNote function
   async function deleteNote(id) {
     try {
-        console.log('deleteNote function called with ID:', id);
+        // console.log('deleteNote function called with ID:', id);
 
         // Get the note to retrieve the image URL and content
         const { data: noteData, error: noteError } = await supabase
@@ -961,15 +961,15 @@ export default function App() {
             return;
         }
 
-        console.log('Note data retrieved:', noteData);
+        // console.log('Note data retrieved:', noteData);
 
         // Decrypt the image URL
         const imageUrl = noteData?.image_url ? decryptData(noteData.image_url) : null;
-        console.log('Decrypted Image URL:', imageUrl);
+        // console.log('Decrypted Image URL:', imageUrl);
 
         // If the image URL is valid and points to Supabase storage, delete the image first
         if (imageUrl && imageUrl.includes('storage/v1/object/public/notes-images/')) {
-            console.log('Attempting to delete image:', imageUrl);
+            // console.log('Attempting to delete image:', imageUrl);
             const urlParts = imageUrl.split('/');
             const imagePath = urlParts[urlParts.length - 1]; // Extract the last part of the URL as the file path
 
@@ -981,10 +981,10 @@ export default function App() {
                 console.error('Error deleting image from storage:', storageError);
                 alert('Failed to delete image from storage.');
             } else {
-                console.log('Image successfully deleted from storage.');
+                // console.log('Image successfully deleted from storage.');
             }
         } else {
-            console.log('Image URL is not valid or does not point to Supabase storage.');
+            // console.log('Image URL is not valid or does not point to Supabase storage.');
         }
 
         // Delete the note
@@ -999,7 +999,7 @@ export default function App() {
             return;
         }
 
-        console.log('Note successfully deleted.');
+        // console.log('Note successfully deleted.');
         // Refresh notes without reloading
         refreshNotes();
     } catch (err) {
@@ -1020,7 +1020,7 @@ export default function App() {
         try {
             if (item.image_url) {
                 imageUrl = decryptData(item.image_url);
-                console.log('Successfully decrypted Image URL:', imageUrl);
+                // console.log('Successfully decrypted Image URL:', imageUrl);
             }
         } catch (imgError) {
             console.error('Error decrypting image URL:', imgError);
@@ -1301,7 +1301,7 @@ export default function App() {
         image_url: note.image_url ? decryptData(note.image_url) : null
       };
       
-      console.log('Viewing note with decrypted image URL:', decryptedNote.image_url);
+      // console.log('Viewing note with decrypted image URL:', decryptedNote.image_url);
       setSelectedNote(decryptedNote); // Set the selected note with decrypted values
     } catch (error) {
       console.error('Error decrypting note for viewing:', error);

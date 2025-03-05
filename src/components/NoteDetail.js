@@ -10,7 +10,7 @@ const NoteDetail = ({ note, onBack, decryptData }) => {
   const content = note.content;
   const imageUrl = note.image_url;
   
-  console.log('Rendering note detail with image URL:', imageUrl);
+  // console.log('Rendering note detail with image URL:', imageUrl);
 
   return (
     <div className="note-detail-container">
