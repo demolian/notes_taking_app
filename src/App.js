@@ -378,75 +378,35 @@ export default function App() {
   // Function to upload an image to Supabase Storage and return its public URL
   async function uploadImage(file) {
     try {
-      if (!(file instanceof Blob || file instanceof File)) {
-        throw new Error('Invalid file type');
-      }
-
-      // Check storage limit for non-unlimited users
-      if (!userStorage.unlimited) {
-        const newTotalSize = userStorage.used + file.size;
-        if (newTotalSize > userStorage.total) {
-          throw new Error('Storage limit exceeded (500MB). Please delete some images first.');
-        }
-      }
-
-      let compressedFile = file;
-      if (file.size > 2 * 1024 * 1024) { // If larger than 2MB
-        // Initial compression with high quality
-        let options = {
-          maxSizeMB: 2,
-          maxWidthOrHeight: 2048,
-          useWebWorker: true,
-          quality: 0.9
-        };
-
-        compressedFile = await imageCompression(file, options);
-        
-        // If still too large, try progressive compression while maintaining quality
-        if (compressedFile.size > 2 * 1024 * 1024) {
-          const compressionSteps = [
-            { quality: 0.8, maxWidthOrHeight: 1920 },
-            { quality: 0.7, maxWidthOrHeight: 1800 },
-            { quality: 0.6, maxWidthOrHeight: 1600 }
-          ];
-
-          for (const step of compressionSteps) {
-            if (compressedFile.size <= 2 * 1024 * 1024) break;
-            
-            options = { ...options, ...step };
-            compressedFile = await imageCompression(file, options);
-          }
-        }
-
-        // Final check and warning if still over limit
-        if (compressedFile.size > 2 * 1024 * 1024) {
-          console.warn('Image still exceeds 2MB after compression');
-        }
-      }
-
-      const fileName = `${Date.now()}_${file.name || 'image.jpg'}`;
+      // Generate a unique file name
+      const fileName = `${uuidv4()}-${file.name}`;
+      
+      // Upload to Supabase Storage
       const { data, error } = await supabase.storage
         .from('notes-images')
-        .upload(fileName, compressedFile, { 
+        .upload(fileName, file, {
           cacheControl: '3600',
-          upsert: false,
-          contentType: compressedFile.type
+          upsert: false
         });
-
-      if (error) throw error;
-
-      const publicUrl = `${process.env.REACT_APP_SUPABASE_URL}/storage/v1/object/public/notes-images/${fileName}`;
+        
+      if (error) {
+        throw error;
+      }
       
-      // Update storage usage
-      setUserStorage(prev => ({
-        ...prev,
-        used: prev.used + compressedFile.size
-      }));
-
+      // Get the public URL
+      const { data: urlData } = supabase.storage
+        .from('notes-images')
+        .getPublicUrl(fileName);
+        
+      const publicUrl = urlData.publicUrl;
+      
+      // Set the image URL state without encryption (will be encrypted when saving)
+      setImageUrl(publicUrl);
+      
       return publicUrl;
     } catch (err) {
-      console.error('Image upload error:', err);
-      alert('Upload Error: ' + (err.message || 'Image upload failed'));
+      console.error('Error uploading image:', err);
+      alert('Failed to upload image');
       return null;
     }
   }
@@ -798,7 +758,7 @@ export default function App() {
     }
   };
 
-  // Update the saveNote function to check storage limit before saving
+  // Update the saveNote function to encrypt data before saving
   const saveNote = async () => {
     try {
       if (!title.trim()) {
@@ -811,11 +771,11 @@ export default function App() {
         return;
       }
 
-      // Calculate size of new content
+      // Calculate size of content for storage tracking
       const contentSize = new Blob([content]).size;
       let imageSize = 0;
 
-      // Calculate size of new image if exists
+      // Calculate size of image if exists
       if (imageUrl) {
         try {
           const response = await fetch(imageUrl, { method: 'HEAD' });
@@ -825,57 +785,69 @@ export default function App() {
         }
       }
 
-      // Get current storage usage
-      const currentUsage = await calculateUserStorage();
-      const newTotalSize = currentUsage + contentSize + imageSize;
+      // Encrypt data before storing
+      const encryptedTitle = encryptData(title);
+      const encryptedContent = encryptData(content);
+      // Only encrypt image_url if it exists
+      const encryptedImageUrl = imageUrl ? encryptData(imageUrl) : null;
 
-      // Check if adding this note would exceed storage limit
-      if (!userStorage.unlimited && newTotalSize > userStorage.total) {
-        alert('Storage limit reached! Please delete some notes or upgrade your storage.');
-        return;
-      }
-
-      const noteData = {
-        title: title.trim() || 'Untitled',
-        content: encryptData(content),
-        user_id: user.id,
-        image_url: imageUrl || null,
-        created_at: editingId ? undefined : new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      let error;
+      // Check if editing an existing note
       if (editingId) {
-        const { error: updateError } = await supabase
+        // Update the existing note with encrypted data
+        const { error } = await supabase
           .from('notes')
-          .update(noteData)
+          .update({
+            title: encryptedTitle,
+            content: encryptedContent,
+            image_url: encryptedImageUrl,
+            updated_at: new Date().toISOString()
+          })
           .eq('id', editingId);
-        error = updateError;
+
+        if (error) {
+          console.error('Error updating note:', error);
+          alert('Failed to update note: ' + error.message);
+          return;
+        }
+
+        // Clear the form and refresh notes
+        setTitle('');
+        setContent('');
+        setImageUrl(null);
+        setEditingId(null);
+        await fetchNotes();
+        alert('Note updated successfully!');
       } else {
-        const { error: insertError } = await supabase
+        // Create a new note with encrypted data
+        const { error } = await supabase
           .from('notes')
-          .insert([noteData]);
-        error = insertError;
+          .insert([
+            {
+              title: encryptedTitle,
+              content: encryptedContent,
+              image_url: encryptedImageUrl,
+              user_id: user.id,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }
+          ]);
+
+        if (error) {
+          console.error('Error creating note:', error);
+          alert('Failed to create note: ' + error.message);
+          return;
+        }
+
+        // Clear the form and refresh notes
+        setTitle('');
+        setContent('');
+        setImageUrl(null);
+        await fetchNotes();
+        alert('Note saved successfully!');
       }
-
-      if (error) throw error;
-
-      // Clear form
-      setTitle('');
-      setContent('');
-      setImageUrl(null);
-      setEditingId(null);
-
-      // Recalculate storage after successful save
-      await calculateUserStorage();
-
-      // Refresh notes list
-      fetchNotes();
-      
-      alert(editingId ? 'Note updated successfully!' : 'Note saved successfully!');
     } catch (err) {
       console.error('Error saving note:', err);
-      alert('Error saving note: ' + err.message);
+      alert('An error occurred. Please try again.');
     }
   };
 
@@ -1144,8 +1116,11 @@ export default function App() {
         return;
       }
 
+      // Compare the entered password with the hashed password in the database
       const isMatch = await bcrypt.compare(password, data.password);
       if (isMatch) {
+        // Password matches, proceed with login
+        // Rest of the login logic remains the same
         // Store credentials securely for potential session refresh
         try {
           localStorage.setItem('userCredentials', JSON.stringify({
@@ -1185,10 +1160,14 @@ export default function App() {
         return;
       }
 
+      // Hash the password before storing
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+
       // First, create the auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email,
-        password: password,
+        password: password, // Original password for auth system
         options: {
           data: {
             username: email.split('@')[0]
@@ -2207,11 +2186,15 @@ export default function App() {
           return;
         }
 
-        // Simply update the password in users table
+        // Hash the password before updating
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // Update the password in users table with hashed password
         const { error: updateError } = await supabase
           .from('users')
           .update({ 
-            password: newPassword,
+            password: hashedPassword,
             updated_at: new Date().toISOString()
           })
           .eq('username', resetEmail);
