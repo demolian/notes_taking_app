@@ -11,7 +11,7 @@ import bcrypt from 'bcryptjs'; // Import bcrypt
 import PasswordReset from './PasswordReset'; // Import the PasswordReset component
 import NotesHistory from './components/NotesHistory'; // Import the NotesHistory component
 import NoteDetail from './components/NoteDetail'; // Import the NoteDetail component
-import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive, FaHdd } from 'react-icons/fa';
+import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive, FaHdd, FaEye, FaUndo } from 'react-icons/fa';
 import CustomQuill from './CustomQuill'; // Import our custom wrapper instead
 import 'react-quill/dist/quill.snow.css'; // Import Quill styles
 import { v4 as uuidv4 } from 'uuid';
@@ -95,6 +95,10 @@ export default function App() {
   const [newPassword, setNewPassword] = useState('');
   const [isEmailVerified, setIsEmailVerified] = useState(false);
   const [resetError, setResetError] = useState('');
+
+  // Add state variables to manage backup viewing
+  const [viewingBackup, setViewingBackup] = useState(null);
+  const [backupDetails, setBackupDetails] = useState([]);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -1645,62 +1649,98 @@ export default function App() {
   // Function to restore from a backup
   const restoreFromBackup = async (backupId) => {
     try {
-      // Confirm with user
-      const confirmRestore = window.confirm(
-        "This will replace your current notes with the backup. Continue?"
+      // Find the backup to restore
+      const backup = backupList.find(b => b.id === backupId);
+      
+      if (!backup || !backup.backup_data || !backup.backup_data.notes) {
+        alert('Backup data not found or corrupted');
+        return;
+      }
+      
+      // Ask user if they want to keep existing notes
+      const shouldKeepExisting = window.confirm(
+        'Would you like to keep your current notes and add the backup notes to them? ' +
+        'Click OK to keep current notes and add backup notes. ' +
+        'Click Cancel to replace all current notes with backup notes only.'
       );
       
-      if (!confirmRestore) return;
-      
-      // Get the specific backup
-      const { data: backupData, error: backupError } = await supabase
-        .from('note_backups')
-        .select('*')
-        .eq('id', backupId)
-        .single();
+      if (shouldKeepExisting) {
+        // Merge approach - Add backup notes to existing notes
         
-      if (backupError || !backupData) {
-        console.error("Error fetching backup:", backupError);
-        alert("Could not retrieve backup data");
-        return;
+        // Get existing note IDs to avoid duplicates
+        const existingIds = notes.map(note => note.id);
+        
+        // Filter backup notes to remove any that have the same ID as existing notes
+        const notesToAdd = backup.backup_data.notes.filter(backupNote => 
+          !existingIds.includes(backupNote.id)
+        );
+        
+        if (notesToAdd.length === 0) {
+          alert('No new notes to restore from this backup');
+          return;
+        }
+        
+        // Insert all backup notes
+        for (const note of notesToAdd) {
+          const { error } = await supabase
+            .from('notes')
+            .insert([{
+              title: note.title, // Already encrypted in backup
+              content: note.content, // Already encrypted in backup
+              image_url: note.image_url, // Already encrypted in backup
+              user_id: user.id,
+              created_at: note.created_at || new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }]);
+            
+          if (error) {
+            console.error('Error restoring note:', error);
+          }
+        }
+        
+        alert(`Restored ${notesToAdd.length} notes from backup while keeping your existing notes`);
+      } else {
+        // Replace approach - Delete existing notes and restore backup notes
+        
+        // First delete all existing notes
+        const { error: deleteError } = await supabase
+          .from('notes')
+          .delete()
+          .eq('user_id', user.id);
+          
+        if (deleteError) {
+          console.error('Error deleting existing notes:', deleteError);
+          alert('Failed to delete existing notes before restore');
+          return;
+        }
+        
+        // Then insert all backup notes
+        for (const note of backup.backup_data.notes) {
+          const { error } = await supabase
+            .from('notes')
+            .insert([{
+              title: note.title, // Already encrypted in backup
+              content: note.content, // Already encrypted in backup
+              image_url: note.image_url, // Already encrypted in backup
+              user_id: user.id,
+              created_at: note.created_at || new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }]);
+            
+          if (error) {
+            console.error('Error restoring note:', error);
+          }
+        }
+        
+        alert(`Replaced all notes with ${backup.backup_data.notes.length} notes from backup`);
       }
       
-      // Extract notes from the backup
-      const notesFromBackup = backupData.backup_data.notes;
+      // Refresh the notes list
+      await fetchNotes();
       
-      // Delete existing notes
-      const { error: deleteError } = await supabase
-        .from('notes')
-        .delete()
-        .eq('user_id', user.id);
-
-      if (deleteError) {
-        console.error("Error deleting existing notes:", deleteError);
-        alert("Failed to delete existing notes");
-        return;
-      }
-
-      // Insert notes from backup
-      const { error: insertError } = await supabase
-        .from('notes')
-        .insert(notesFromBackup.map(note => ({
-          ...note,
-          user_id: user.id // Ensure the user_id is set correctly
-        })));
-
-      if (insertError) {
-        console.error("Error inserting notes from backup:", insertError);
-        alert("Failed to restore notes from backup");
-        return;
-      }
-
-      // Update local state with backup data
-      setNotes(notesFromBackup);
-
-      alert("Backup restored successfully");
     } catch (err) {
-      console.error("Error restoring backup:", err);
-      alert("Failed to restore from backup");
+      console.error('Error restoring from backup:', err);
+      alert('Failed to restore from backup');
     }
   };
   
@@ -2274,6 +2314,204 @@ export default function App() {
     setEditingId(null);
   };
 
+  // Function to view backup details
+  const viewBackupDetails = async (backupId) => {
+    try {
+      // Find the backup in the backupList
+      const backup = backupList.find(b => b.id === backupId);
+      
+      if (!backup || !backup.backup_data || !backup.backup_data.notes) {
+        alert('Backup data not found or corrupted');
+        return;
+      }
+      
+      // Process the backup notes to decrypt them for viewing
+      const processedNotes = backup.backup_data.notes.map(note => {
+        try {
+          return {
+            ...note,
+            id: note.id,
+            title: decryptData(note.title),
+            content: decryptData(note.content),
+            image_url: note.image_url ? decryptData(note.image_url) : null,
+            created_at: note.created_at,
+            updated_at: note.updated_at
+          };
+        } catch (err) {
+          console.error('Error decrypting note in backup:', err);
+          return {
+            ...note,
+            title: "Error decrypting title",
+            content: "Error decrypting content",
+            decryptError: true
+          };
+        }
+      });
+      
+      setBackupDetails(processedNotes);
+      setViewingBackup(backup);
+    } catch (err) {
+      console.error('Error viewing backup details:', err);
+      alert('Failed to load backup details');
+    }
+  };
+
+  // Function to close backup details view
+  const closeBackupDetails = () => {
+    setViewingBackup(null);
+    setBackupDetails([]);
+  };
+
+  // Move the styles definition inside the component
+  const backupViewerStyles = `
+    .backup-details-panel {
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      padding: 20px;
+      margin-top: 20px;
+    }
+    
+    .backup-details-header {
+      border-bottom: 1px solid #eee;
+      padding-bottom: 15px;
+      margin-bottom: 15px;
+    }
+    
+    .backup-details-header h2 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      color: #2c3e50;
+    }
+    
+    .backup-details-header p {
+      margin: 5px 0;
+      color: #7f8c8d;
+      font-size: 14px;
+    }
+    
+    .backup-notes-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+    
+    .backup-note-card {
+      background-color: #f9f9f9;
+      border-radius: 6px;
+      padding: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      transition: transform 0.2s;
+    }
+    
+    .backup-note-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .backup-note-card h4 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      color: #2c3e50;
+      font-size: 16px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .note-preview {
+      max-height: 100px;
+      overflow: hidden;
+      margin-bottom: 10px;
+      font-size: 14px;
+      color: #555;
+    }
+    
+    .note-image-preview {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0;
+      font-size: 12px;
+      color: #666;
+    }
+    
+    .backup-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    
+    .backup-actions button {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .view-btn {
+      background-color: #3498db;
+      color: white;
+    }
+    
+    .view-btn:hover {
+      background-color: #2980b9;
+    }
+    
+    .restore-btn {
+      background-color: #2ecc71;
+      color: white;
+    }
+    
+    .restore-btn:hover {
+      background-color: #27ae60;
+    }
+    
+    .delete-btn {
+      background-color: #e74c3c;
+      color: white;
+    }
+    
+    .delete-btn:hover {
+      background-color: #c0392b;
+    }
+    
+    .back-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 8px 15px;
+      border: none;
+      background-color: #f1f1f1;
+      color: #333;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      margin-top: 10px;
+    }
+    
+    .back-btn:hover {
+      background-color: #e0e0e0;
+    }
+  `;
+  
+  // Move the useEffect hook inside the component
+  useEffect(() => {
+    const styleElement = document.createElement('style');
+    styleElement.innerHTML = backupViewerStyles;
+    document.head.appendChild(styleElement);
+    
+    return () => {
+      document.head.removeChild(styleElement);
+    };
+  }, [backupViewerStyles]); // Add backupViewerStyles as a dependency
+
   return (
     <div className="container">
       {user ? (
@@ -2381,29 +2619,79 @@ export default function App() {
                 <button className="back-to-dashboard" onClick={() => setShowBackupPanel(false)}>
                   <FaArrowLeft /> Back to Dashboard
                 </button>
-                <div className="backup-panel">
-                  <h2>Your Backups</h2>
-                  {backupList.length === 0 ? (
-                    <p>No backups available yet.</p>
-                  ) : (
-                    <div className="backup-list">
-                      {backupList.map(backup => (
-                        <div key={backup.id} className="backup-item">
-                          <div className="backup-info">
-                            <h3>{backup.backup_name}</h3>
-                            <p>Date: {new Date(backup.backup_date).toLocaleString()}</p>
-                            <p>Type: {backup.backup_type === 'auto' ? 'Automatic' : 'Manual'}</p>
-                            <p>Notes: {backup.backup_data.note_count}</p>
-                          </div>
-                          <div className="backup-actions">
-                            <button onClick={() => restoreFromBackup(backup.id)}>Restore</button>
-                            <button onClick={() => deleteBackup(backup.id)}>Delete</button>
-                          </div>
-                        </div>
-                      ))}
+                
+                {viewingBackup ? (
+                  // Backup Details View
+                  <div className="backup-details-panel">
+                    <div className="backup-details-header">
+                      <h2>Backup Details: {viewingBackup.backup_name}</h2>
+                      <p>Date: {new Date(viewingBackup.backup_date).toLocaleString()}</p>
+                      <p>Type: {viewingBackup.backup_type === 'auto' ? 'Automatic' : 'Manual'}</p>
+                      <p>Contains {backupDetails.length} notes</p>
+                      <button className="back-btn" onClick={closeBackupDetails}>
+                        <FaArrowLeft /> Back to Backups
+                      </button>
                     </div>
-                  )}
-                </div>
+                    
+                    <div className="backup-notes-list">
+                      {backupDetails.length === 0 ? (
+                        <p>No notes found in this backup</p>
+                      ) : (
+                        backupDetails.map(note => (
+                          <div key={note.id} className="backup-note-card">
+                            <h4>{note.title}</h4>
+                            <div className="note-preview">
+                              <div className="note-content" dangerouslySetInnerHTML={{ __html: note.content.substring(0, 150) + '...' }}></div>
+                            </div>
+                            {note.image_url && (
+                              <div className="note-image-preview">
+                                <img 
+                                  src={note.image_url} 
+                                  alt="Note attachment" 
+                                  style={{ maxWidth: '100px', maxHeight: '100px' }}
+                                />
+                                <span>Has image attachment</span>
+                              </div>
+                            )}
+                            <p>Created: {new Date(note.created_at).toLocaleString()}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  // Backup List View
+                  <div className="backup-panel">
+                    <h2>Your Backups</h2>
+                    {backupList.length === 0 ? (
+                      <p>No backups available yet.</p>
+                    ) : (
+                      <div className="backup-list">
+                        {backupList.map(backup => (
+                          <div key={backup.id} className="backup-item">
+                            <div className="backup-info">
+                              <h3>{backup.backup_name}</h3>
+                              <p>Date: {new Date(backup.backup_date).toLocaleString()}</p>
+                              <p>Type: {backup.backup_type === 'auto' ? 'Automatic' : 'Manual'}</p>
+                              <p>Notes: {backup.backup_data.note_count || backup.backup_data.notes?.length || 0}</p>
+                            </div>
+                            <div className="backup-actions">
+                              <button onClick={() => viewBackupDetails(backup.id)} className="view-btn">
+                                <FaEye /> View
+                              </button>
+                              <button onClick={() => restoreFromBackup(backup.id)} className="restore-btn">
+                                <FaUndo /> Restore
+                              </button>
+                              <button onClick={() => deleteBackup(backup.id)} className="delete-btn">
+                                <FaTrash /> Delete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <>
