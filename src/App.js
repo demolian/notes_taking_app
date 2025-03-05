@@ -11,7 +11,7 @@ import bcrypt from 'bcryptjs'; // Import bcrypt
 import PasswordReset from './PasswordReset'; // Import the PasswordReset component
 import NotesHistory from './components/NotesHistory'; // Import the NotesHistory component
 import NoteDetail from './components/NoteDetail'; // Import the NoteDetail component
-import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive, FaHdd, FaEye, FaUndo, FaSpinner, FaClone } from 'react-icons/fa';
+import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive, FaHdd, FaEye, FaUndo, FaSpinner, FaClone, FaFileAlt } from 'react-icons/fa';
 import CustomQuill from './CustomQuill'; // Import our custom wrapper instead
 import 'react-quill/dist/quill.snow.css'; // Import Quill styles
 import { v4 as uuidv4 } from 'uuid';
@@ -2702,9 +2702,22 @@ export default function App() {
                 />
               ) : (
                 <>
-                  <button className="back-to-dashboard" onClick={handleBackToDashboard}>
-                    <FaArrowLeft /> Back to Dashboard
-                  </button>
+                  <div className="history-header">
+                    <button className="back-to-dashboard" onClick={handleBackToDashboard}>
+                      <FaArrowLeft /> Back to Dashboard
+                    </button>
+                    
+                    {/* Add Notes Counter */}
+                    <div className="notes-counter">
+                      <div className="counter-icon">
+                        <FaFileAlt />
+                      </div>
+                      <div className="counter-details">
+                        <span className="counter-number">{notes.length}</span>
+                        <span className="counter-label">Total Notes</span>
+                      </div>
+                    </div>
+                  </div>
                   
                   <div className="notes-controls">
                     <button 
@@ -2721,7 +2734,7 @@ export default function App() {
                   </div>
                   
                   <NotesHistory 
-                    notes={notes} // Pass the regular notes array without sorting
+                    notes={notes}
                     onViewNote={handleViewNote}
                     onEditNote={handleEdit}
                     onDeleteNote={handleDelete}
