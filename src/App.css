@@ -259,13 +259,21 @@ body {
   gap: 20px;
 }
 
-.noteCard {
+/* .noteCard { old
   background-color: white;
   border-radius: 10px;
   padding: 20px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
   transition: transform 0.2s, box-shadow 0.2s;
   overflow: hidden;
+} */
+
+.noteCard {
+  padding: 15px;
+  margin-bottom: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  background-color: #fff;
 }
 
 .noteCard:hover {
@@ -273,17 +281,31 @@ body {
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
 }
 
-.noteCard h4 {
+/* .noteCard h4 { old
   margin-top: 0;
   margin-bottom: 10px;
   color: #2c3e50;
   font-size: 1.2rem;
+} */
+
+.noteCard h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 18px;
+  color: #333;
 }
 
-.noteCard p {
+/* .noteCard p { old
   color: #555;
   margin-bottom: 10px;
   overflow-wrap: break-word;
+} */
+
+/* Improve display of creation date */
+.noteCard p {
+  margin: 8px 0;
+  font-size: 12px;
+  color: #666;
 }
 
 .noteCard img {
@@ -292,10 +314,17 @@ body {
   cursor: pointer;
 }
 
-.note-actions {
+/* .note-actions { old
   display: flex;
   gap: 10px;
   margin-top: 15px;
+} */
+
+/* Make buttons more attractive */
+.note-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
 }
 
 .edit-btn, .delete-btn {
@@ -537,9 +566,15 @@ body {
   border-radius: 4px;
 }
 
-.note-content {
+/* .note-content { old
   overflow-wrap: break-word;
   margin-bottom: 15px;
+} */
+
+.note-content {
+  margin-top: 8px;
+  line-height: 1.4;
+  font-size: 14px;
 }
 
 .note-content * {

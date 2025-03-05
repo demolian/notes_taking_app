@@ -801,8 +801,13 @@ export default function App() {
   // Update the saveNote function to check storage limit before saving
   const saveNote = async () => {
     try {
-      if (!title.trim() && !content.trim()) {
-        alert('Please add a title or content to your note');
+      if (!title.trim()) {
+        alert('Please add a title to your note');
+        return;
+      }
+      
+      if (!content.trim()) {
+        alert('Please add content to your note');
         return;
       }
 
