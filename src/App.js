@@ -2278,6 +2278,14 @@ export default function App() {
     );
   };
 
+  // Function to cancel editing
+  const cancelEditing = () => {
+    setTitle('');
+    setContent('');
+    setImageUrl(null);
+    setEditingId(null);
+  };
+
   return (
     <div className="container">
       {user ? (
@@ -2346,7 +2354,10 @@ export default function App() {
               <button className="backup-btn" onClick={() => storeBackupOnline()}>
                 <FaCloudUploadAlt /> Backup Online
               </button>
-              <button className="backup-btn" onClick={() => setShowBackupPanel(!showBackupPanel)}>
+              <button className="backup-btn" onClick={() => {
+                setShowBackupPanel(true);
+                setShowHistory(false);
+              }}>
                 <FaCloudDownloadAlt /> Manage Backups
               </button>
             </div>
@@ -2408,7 +2419,7 @@ export default function App() {
               </>
             ) : (
               <>
-                <h3>Add a New Note</h3>
+                <h3>{editingId ? 'Edit Note' : 'Add a New Note'}</h3>
                 <div className="note-form">
                   <input
                     type="text"
@@ -2478,9 +2489,16 @@ export default function App() {
                     </>
                   )}
                   
-                  <button onClick={saveNote} className="save-btn">
-                    {editingId ? 'Update Note' : 'Save Note'}
-                  </button>
+                  <div className="form-buttons">
+                    <button onClick={saveNote} className="save-btn">
+                      {editingId ? 'Update Note' : 'Save Note'}
+                    </button>
+                    {editingId && (
+                      <button onClick={cancelEditing} className="cancel-edit-btn">
+                        Cancel
+                      </button>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="view-history-prompt">
