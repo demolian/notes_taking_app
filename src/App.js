@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import './App.css'; // Import CSS
 import { supabase } from './supabase/supabaseClient'; 
 import imageCompression from 'browser-image-compression';
@@ -101,7 +101,6 @@ export default function App() {
   const [backupDetails, setBackupDetails] = useState([]);
 
   // Add these state variables inside your component
-  const [sortOption, setSortOption] = useState('newest'); // Default sort is newest first
   const [isProcessingDuplicates, setIsProcessingDuplicates] = useState(false);
 
   useEffect(() => {
@@ -1650,7 +1649,7 @@ export default function App() {
     }
   };
   
-  // Function to restore from a backup
+  // Simplified restore function that only offers merging and proper cancellation
   const restoreFromBackup = async (backupId) => {
     try {
       // Find the backup to restore
@@ -1661,90 +1660,62 @@ export default function App() {
         return;
       }
       
-      // Ask user if they want to keep existing notes
-      const shouldKeepExisting = window.confirm(
-        'Would you like to keep your current notes and add the backup notes to them? ' +
-        'Click OK to keep current notes and add backup notes. ' +
-        'Click Cancel to replace all current notes with backup notes only.'
+      // Ask if the user wants to restore notes from the backup
+      const confirmRestore = window.confirm(
+        'Would you like to restore notes from this backup? ' +
+        'This will add backup notes to your current notes. ' +
+        'Click OK to proceed or Cancel to abort.'
       );
       
-      if (shouldKeepExisting) {
-        // Merge approach - Add backup notes to existing notes
-        
-        // Get existing note IDs to avoid duplicates
-        const existingIds = notes.map(note => note.id);
-        
-        // Filter backup notes to remove any that have the same ID as existing notes
-        const notesToAdd = backup.backup_data.notes.filter(backupNote => 
-          !existingIds.includes(backupNote.id)
-        );
-        
-        if (notesToAdd.length === 0) {
-          alert('No new notes to restore from this backup');
-          return;
-        }
-        
-        // Insert all backup notes
-        for (const note of notesToAdd) {
-          const { error } = await supabase
-            .from('notes')
-            .insert([{
-              title: note.title, // Already encrypted in backup
-              content: note.content, // Already encrypted in backup
-              image_url: note.image_url, // Already encrypted in backup
-              user_id: user.id,
-              created_at: note.created_at || new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            }]);
-            
-          if (error) {
-            console.error('Error restoring note:', error);
-          }
-        }
-        
-        alert(`Restored ${notesToAdd.length} notes from backup while keeping your existing notes`);
-      } else {
-        // Replace approach - Delete existing notes and restore backup notes
-        
-        // First delete all existing notes
-        const { error: deleteError } = await supabase
-          .from('notes')
-          .delete()
-          .eq('user_id', user.id);
-          
-        if (deleteError) {
-          console.error('Error deleting existing notes:', deleteError);
-          alert('Failed to delete existing notes before restore');
-          return;
-        }
-        
-        // Then insert all backup notes
-        for (const note of backup.backup_data.notes) {
-          const { error } = await supabase
-            .from('notes')
-            .insert([{
-              title: note.title, // Already encrypted in backup
-              content: note.content, // Already encrypted in backup
-              image_url: note.image_url, // Already encrypted in backup
-              user_id: user.id,
-              created_at: note.created_at || new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            }]);
-            
-          if (error) {
-            console.error('Error restoring note:', error);
-          }
-        }
-        
-        alert(`Replaced all notes with ${backup.backup_data.notes.length} notes from backup`);
+      if (!confirmRestore) {
+        // User clicked Cancel, simply abort the operation
+        return;
       }
       
-      // Refresh the notes list
-      await fetchNotes();
+      // Proceed with merging backup notes with existing notes
+      // Get existing note IDs to avoid duplicates
+      const existingIds = notes.map(note => note.id);
+      
+      // Filter backup notes to remove any that have the same ID as existing notes
+      const notesToAdd = backup.backup_data.notes.filter(backupNote => 
+        !existingIds.includes(backupNote.id)
+      );
+      
+      if (notesToAdd.length === 0) {
+        alert('No new notes to restore from this backup');
+        return;
+      }
+      
+      // Insert all backup notes
+      let successCount = 0;
+      for (const note of notesToAdd) {
+        const { error } = await supabase
+          .from('notes')
+          .insert([{
+            title: note.title, // Already encrypted in backup
+            content: note.content, // Already encrypted in backup
+            image_url: note.image_url, // Already encrypted in backup
+            user_id: user.id,
+            created_at: note.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }]);
+          
+        if (!error) {
+          successCount++;
+        } else {
+          console.error('Error restoring note:', error);
+        }
+      }
+      
+      // Show success message
+      alert(`Successfully restored ${successCount} notes from backup while keeping your existing notes.`);
+      
+      // Refresh notes after restore
+      fetchNotes();
       
     } catch (err) {
       console.error('Error restoring from backup:', err);
-      alert('Failed to restore from backup');
+      alert('Failed to restore from backup: ' + err.message);
     }
   };
   
@@ -2508,7 +2479,7 @@ export default function App() {
   const notesControlsStyles = `
     .notes-controls {
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-end; /* Changed from space-between to flex-end */
       align-items: center;
       margin: 15px 0;
       padding: 10px;
@@ -2516,19 +2487,8 @@ export default function App() {
       border-radius: 6px;
     }
     
-    .sort-container {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    .sort-select {
-      padding: 8px 12px;
-      border-radius: 4px;
-      border: 1px solid #ddd;
-      background-color: white;
-      font-size: 14px;
-    }
+    /* Remove sort-container styles */
+    /* Remove sort-select styles */
     
     .remove-duplicates-btn {
       display: flex;
@@ -2573,36 +2533,6 @@ export default function App() {
       document.head.removeChild(styleElement);
     };
   }, [backupViewerStyles, notesControlsStyles]);
-
-  // Function to sort notes based on selected option
-  const getSortedNotes = () => {
-    if (!notes || notes.length === 0) return [];
-    
-    let sortedNotes = [...notes];
-    
-    switch (sortOption) {
-      case 'newest':
-        return sortedNotes.sort((a, b) => 
-          new Date(b.created_at) - new Date(a.created_at)
-        );
-      case 'oldest':
-        return sortedNotes.sort((a, b) => 
-          new Date(a.created_at) - new Date(b.created_at)
-        );
-      case 'alphabetical':
-        return sortedNotes.sort((a, b) => {
-          const titleA = decryptData(a.title).toLowerCase();
-          const titleB = decryptData(b.title).toLowerCase();
-          return titleA.localeCompare(titleB);
-        });
-      case 'recently_updated':
-        return sortedNotes.sort((a, b) => 
-          new Date(b.updated_at) - new Date(a.updated_at)
-        );
-      default:
-        return sortedNotes;
-    }
-  };
 
   // Function to detect and remove duplicate notes
   const removeDuplicateNotes = async () => {
@@ -2777,21 +2707,6 @@ export default function App() {
                   </button>
                   
                   <div className="notes-controls">
-                    <div className="sort-container">
-                      <label htmlFor="sort-select">Sort by: </label>
-                      <select 
-                        id="sort-select" 
-                        value={sortOption} 
-                        onChange={(e) => setSortOption(e.target.value)}
-                        className="sort-select"
-                      >
-                        <option value="newest">Newest First</option>
-                        <option value="oldest">Oldest First</option>
-                        <option value="alphabetical">Alphabetical</option>
-                        <option value="recently_updated">Recently Updated</option>
-                      </select>
-                    </div>
-                    
                     <button 
                       className="remove-duplicates-btn" 
                       onClick={removeDuplicateNotes}
@@ -2806,7 +2721,7 @@ export default function App() {
                   </div>
                   
                   <NotesHistory 
-                    notes={getSortedNotes()} /* Pass sorted notes instead of all notes */
+                    notes={notes} // Pass the regular notes array without sorting
                     onViewNote={handleViewNote}
                     onEditNote={handleEdit}
                     onDeleteNote={handleDelete}
