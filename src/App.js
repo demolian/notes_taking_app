@@ -103,6 +103,9 @@ export default function App() {
   // Add these state variables inside your component
   const [isProcessingDuplicates, setIsProcessingDuplicates] = useState(false);
 
+  // Add a ref for the editor
+  const editorRef = useRef(null);
+
   useEffect(() => {
     const checkSession = async () => {
       // First check if we have an active Supabase Auth session
@@ -2834,9 +2837,10 @@ export default function App() {
                     className="note-input"
                   />
                   <CustomQuill
-                    placeholder="Content (You can paste images directly here)"
+                    ref={editorRef}
                     value={content}
                     onChange={setContent}
+                    placeholder="Write something..."
                     modules={quillModules}
                     formats={quillFormats}
                     className="note-editor"
