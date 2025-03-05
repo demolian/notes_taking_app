@@ -11,7 +11,7 @@ import bcrypt from 'bcryptjs'; // Import bcrypt
 import PasswordReset from './PasswordReset'; // Import the PasswordReset component
 import NotesHistory from './components/NotesHistory'; // Import the NotesHistory component
 import NoteDetail from './components/NoteDetail'; // Import the NoteDetail component
-import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive, FaHdd, FaEye, FaUndo } from 'react-icons/fa';
+import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive, FaHdd, FaEye, FaUndo, FaSpinner, FaClone } from 'react-icons/fa';
 import CustomQuill from './CustomQuill'; // Import our custom wrapper instead
 import 'react-quill/dist/quill.snow.css'; // Import Quill styles
 import { v4 as uuidv4 } from 'uuid';
@@ -99,6 +99,10 @@ export default function App() {
   // Add state variables to manage backup viewing
   const [viewingBackup, setViewingBackup] = useState(null);
   const [backupDetails, setBackupDetails] = useState([]);
+
+  // Add these state variables inside your component
+  const [sortOption, setSortOption] = useState('newest'); // Default sort is newest first
+  const [isProcessingDuplicates, setIsProcessingDuplicates] = useState(false);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -2362,7 +2366,7 @@ export default function App() {
     setBackupDetails([]);
   };
 
-  // Move the styles definition inside the component
+  // Define all styles inside the component
   const backupViewerStyles = `
     .backup-details-panel {
       background-color: #fff;
@@ -2501,16 +2505,183 @@ export default function App() {
     }
   `;
   
-  // Move the useEffect hook inside the component
+  const notesControlsStyles = `
+    .notes-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 15px 0;
+      padding: 10px;
+      background-color: #f8f9fa;
+      border-radius: 6px;
+    }
+    
+    .sort-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .sort-select {
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      background-color: white;
+      font-size: 14px;
+    }
+    
+    .remove-duplicates-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 15px;
+      background-color: #6c5ce7;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .remove-duplicates-btn:hover {
+      background-color: #5d4aeb;
+    }
+    
+    .remove-duplicates-btn:disabled {
+      background-color: #a29bea;
+      cursor: not-allowed;
+    }
+    
+    .spinner {
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  `;
+
+  // Move the useEffect inside the component and combine all styles
   useEffect(() => {
     const styleElement = document.createElement('style');
-    styleElement.innerHTML = backupViewerStyles;
+    styleElement.innerHTML = backupViewerStyles + notesControlsStyles;
     document.head.appendChild(styleElement);
     
     return () => {
       document.head.removeChild(styleElement);
     };
-  }, [backupViewerStyles]); // Add backupViewerStyles as a dependency
+  }, [backupViewerStyles, notesControlsStyles]);
+
+  // Function to sort notes based on selected option
+  const getSortedNotes = () => {
+    if (!notes || notes.length === 0) return [];
+    
+    let sortedNotes = [...notes];
+    
+    switch (sortOption) {
+      case 'newest':
+        return sortedNotes.sort((a, b) => 
+          new Date(b.created_at) - new Date(a.created_at)
+        );
+      case 'oldest':
+        return sortedNotes.sort((a, b) => 
+          new Date(a.created_at) - new Date(b.created_at)
+        );
+      case 'alphabetical':
+        return sortedNotes.sort((a, b) => {
+          const titleA = decryptData(a.title).toLowerCase();
+          const titleB = decryptData(b.title).toLowerCase();
+          return titleA.localeCompare(titleB);
+        });
+      case 'recently_updated':
+        return sortedNotes.sort((a, b) => 
+          new Date(b.updated_at) - new Date(a.updated_at)
+        );
+      default:
+        return sortedNotes;
+    }
+  };
+
+  // Function to detect and remove duplicate notes
+  const removeDuplicateNotes = async () => {
+    try {
+      setIsProcessingDuplicates(true);
+      
+      // Get all notes and decrypt them for comparison
+      const decryptedNotes = notes.map(note => ({
+        ...note,
+        decryptedTitle: decryptData(note.title),
+        decryptedContent: decryptData(note.content)
+      }));
+      
+      // Group notes by content (considering identical content as duplicates)
+      const contentGroups = {};
+      decryptedNotes.forEach(note => {
+        const key = note.decryptedContent;
+        if (!contentGroups[key]) {
+          contentGroups[key] = [];
+        }
+        contentGroups[key].push(note);
+      });
+      
+      // Find groups with more than one note (these are duplicates)
+      const duplicateGroups = Object.values(contentGroups).filter(group => group.length > 1);
+      
+      if (duplicateGroups.length === 0) {
+        alert('No duplicate notes found.');
+        setIsProcessingDuplicates(false);
+        return;
+      }
+      
+      // Count total duplicates to be removed
+      const totalDuplicates = duplicateGroups.reduce((sum, group) => sum + group.length - 1, 0);
+      
+      // Confirm with user
+      const confirmRemoval = window.confirm(
+        `Found ${totalDuplicates} duplicate notes. Would you like to remove them?
+        (For each group of identical notes, only the most recent one will be kept)`
+      );
+      
+      if (!confirmRemoval) {
+        setIsProcessingDuplicates(false);
+        return;
+      }
+      
+      // For each group, keep the most recently updated note and delete the rest
+      let deletedCount = 0;
+      for (const group of duplicateGroups) {
+        // Sort by updated_at to keep the most recent one
+        group.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+        
+        // Keep the first one (most recent), delete the rest
+        const notesToDelete = group.slice(1);
+        
+        for (const noteToDelete of notesToDelete) {
+          const { error } = await supabase
+            .from('notes')
+            .delete()
+            .eq('id', noteToDelete.id);
+          
+          if (!error) {
+            deletedCount++;
+          } else {
+            console.error('Error deleting duplicate note:', error);
+          }
+        }
+      }
+      
+      // Refresh notes and notify user
+      await fetchNotes();
+      alert(`Successfully removed ${deletedCount} duplicate notes.`);
+    } catch (err) {
+      console.error('Error removing duplicates:', err);
+      alert('Error removing duplicate notes. Please try again.');
+    } finally {
+      setIsProcessingDuplicates(false);
+    }
+  };
 
   return (
     <div className="container">
@@ -2604,8 +2775,38 @@ export default function App() {
                   <button className="back-to-dashboard" onClick={handleBackToDashboard}>
                     <FaArrowLeft /> Back to Dashboard
                   </button>
+                  
+                  <div className="notes-controls">
+                    <div className="sort-container">
+                      <label htmlFor="sort-select">Sort by: </label>
+                      <select 
+                        id="sort-select" 
+                        value={sortOption} 
+                        onChange={(e) => setSortOption(e.target.value)}
+                        className="sort-select"
+                      >
+                        <option value="newest">Newest First</option>
+                        <option value="oldest">Oldest First</option>
+                        <option value="alphabetical">Alphabetical</option>
+                        <option value="recently_updated">Recently Updated</option>
+                      </select>
+                    </div>
+                    
+                    <button 
+                      className="remove-duplicates-btn" 
+                      onClick={removeDuplicateNotes}
+                      disabled={isProcessingDuplicates}
+                    >
+                      {isProcessingDuplicates ? (
+                        <><FaSpinner className="spinner" /> Processing...</>
+                      ) : (
+                        <><FaClone /> Remove Duplicates</>
+                      )}
+                    </button>
+                  </div>
+                  
                   <NotesHistory 
-                    notes={notes} 
+                    notes={getSortedNotes()} /* Pass sorted notes instead of all notes */
                     onViewNote={handleViewNote}
                     onEditNote={handleEdit}
                     onDeleteNote={handleDelete}
