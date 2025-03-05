@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css'; // Import CSS
 import { supabase } from './supabase/supabaseClient'; 
 import imageCompression from 'browser-image-compression';
@@ -11,7 +11,7 @@ import bcrypt from 'bcryptjs'; // Import bcrypt
 import PasswordReset from './PasswordReset'; // Import the PasswordReset component
 import NotesHistory from './components/NotesHistory'; // Import the NotesHistory component
 import NoteDetail from './components/NoteDetail'; // Import the NoteDetail component
-import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive } from 'react-icons/fa';
+import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive, FaHdd } from 'react-icons/fa';
 import CustomQuill from './CustomQuill'; // Import our custom wrapper instead
 import 'react-quill/dist/quill.snow.css'; // Import Quill styles
 import { v4 as uuidv4 } from 'uuid';
@@ -21,6 +21,7 @@ import * as XLSX from 'xlsx';
 import FileSaver from 'file-saver';
 import moment from 'moment';
 import JSZip from 'jszip';
+import { formatBytes } from './formatBytes';
 
 const secretKey = process.env.REACT_APP_SECRET_KEY; // Get the secret key from environment variables
 
@@ -78,9 +79,22 @@ export default function App() {
   const [sortOrder, setSortOrder] = useState('newest'); // State for sorting preference (default: newest)
   const [backupList, setBackupList] = useState([]); // State to store list of backups
   const [showBackupPanel, setShowBackupPanel] = useState(false); // State to toggle backup panel
+  const [userStorage, setUserStorage] = useState({
+    used: 0,
+    total: 500 * 1024 * 1024, // 500MB in bytes
+    unlimited: false
+  });
+  const [lastActivity, setLastActivity] = useState(Date.now());
   
   const videoRef = useRef(null); // Reference for the video element
   const cameraStream = useRef(null); // Reference to store camera stream
+
+  // Add this state for password reset
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const [resetError, setResetError] = useState('');
 
   useEffect(() => {
     const checkSession = async () => {
@@ -364,35 +378,72 @@ export default function App() {
   // Function to upload an image to Supabase Storage and return its public URL
   async function uploadImage(file) {
     try {
-      // Ensure the file is a valid Blob or File
       if (!(file instanceof Blob || file instanceof File)) {
-        throw new Error('The file given is not an instance of Blob or File');
+        throw new Error('Invalid file type');
       }
 
-      // Compress the image before uploading
-      const options = {
-        maxSizeMB: 1,
-        maxWidthOrHeight: 1920,
-        useWebWorker: true
-      };
-      
-      const compressedFile = await imageCompression(file, options);
-      const fileName = `${Date.now()}_${file.name || 'image.jpg'}`; // Create a unique file name
+      // Check storage limit for non-unlimited users
+      if (!userStorage.unlimited) {
+        const newTotalSize = userStorage.used + file.size;
+        if (newTotalSize > userStorage.total) {
+          throw new Error('Storage limit exceeded (500MB). Please delete some images first.');
+        }
+      }
 
+      let compressedFile = file;
+      if (file.size > 2 * 1024 * 1024) { // If larger than 2MB
+        // Initial compression with high quality
+        let options = {
+          maxSizeMB: 2,
+          maxWidthOrHeight: 2048,
+          useWebWorker: true,
+          quality: 0.9
+        };
+
+        compressedFile = await imageCompression(file, options);
+        
+        // If still too large, try progressive compression while maintaining quality
+        if (compressedFile.size > 2 * 1024 * 1024) {
+          const compressionSteps = [
+            { quality: 0.8, maxWidthOrHeight: 1920 },
+            { quality: 0.7, maxWidthOrHeight: 1800 },
+            { quality: 0.6, maxWidthOrHeight: 1600 }
+          ];
+
+          for (const step of compressionSteps) {
+            if (compressedFile.size <= 2 * 1024 * 1024) break;
+            
+            options = { ...options, ...step };
+            compressedFile = await imageCompression(file, options);
+          }
+        }
+
+        // Final check and warning if still over limit
+        if (compressedFile.size > 2 * 1024 * 1024) {
+          console.warn('Image still exceeds 2MB after compression');
+        }
+      }
+
+      const fileName = `${Date.now()}_${file.name || 'image.jpg'}`;
       const { data, error } = await supabase.storage
         .from('notes-images')
-        .upload(fileName, compressedFile, { cacheControl: '3600', upsert: false });
+        .upload(fileName, compressedFile, { 
+          cacheControl: '3600',
+          upsert: false,
+          contentType: compressedFile.type
+        });
 
-      if (error) {
-        console.error('Supabase upload error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      // Construct the public URL using the specified structure
       const publicUrl = `${process.env.REACT_APP_SUPABASE_URL}/storage/v1/object/public/notes-images/${fileName}`;
-      console.log('Image uploaded, public URL:', publicUrl); // Log the URL when adding
+      
+      // Update storage usage
+      setUserStorage(prev => ({
+        ...prev,
+        used: prev.used + compressedFile.size
+      }));
 
-      return publicUrl; // Return the public URL
+      return publicUrl;
     } catch (err) {
       console.error('Image upload error:', err);
       alert('Upload Error: ' + (err.message || 'Image upload failed'));
@@ -698,119 +749,130 @@ export default function App() {
     'link', 'image'
   ];
 
-  // Create or update a note
-  async function saveNote() {
-    if (!title.trim()) {
-      alert('Please enter a title for your note');
-      return;
-    }
-    
-    // Get the correct auth user ID
-    let authUserId = null;
+  // Update the calculateUserStorage function to be more accurate
+  const calculateUserStorage = async () => {
+    if (!user) return;
+
     try {
-      // First check if we have an active Supabase session
-      const { data: { session } } = await supabase.auth.getSession();
+      // Check if user has unlimited storage
+      const isUnlimited = user.email === "ghugev7@gmail.com";
       
-      if (session?.user?.id) {
-        // Use the auth user ID for the note
-        authUserId = session.user.id;
-      } else {
-        authUserId = user.id;
-      }
-    } catch (sessionErr) {
-      console.error("Error checking auth session:", sessionErr);
-      authUserId = user.id;
-    }
-    
-    let imageUrlToSave = null;
-    let oldImageUrl = null;
-
-    // If we are editing a note, get the current image URL to potentially delete it later
-    if (editingId) {
-      const { data: existingNote, error: fetchError } = await supabase
+      // Get all notes for the user
+      const { data: userNotes, error } = await supabase
         .from('notes')
-        .select('image_url')
-        .eq('id', editingId)
-        .single();
-      
-      if (!fetchError && existingNote) {
-        oldImageUrl = existingNote.image_url;
-      }
-    }
+        .select('content, image_url')
+        .eq('user_id', user.id);
 
-    // Upload new image if it exists
-    if (image instanceof Blob || image instanceof File) {
-      imageUrlToSave = await uploadImage(image);
-    } else if (imageUrl) {
-      if (imageUrl.startsWith('blob:') || !imageUrl.includes('storage.supabaseusercontent')) {
-        if (image) {
-          imageUrlToSave = await uploadImage(image);
+      if (error) throw error;
+
+      // Calculate total storage used
+      let totalSize = 0;
+      for (const note of userNotes) {
+        // Calculate size of note content
+        if (note.content) {
+          totalSize += new Blob([note.content]).size;
         }
+        
+        // Calculate size of attached images
+        if (note.image_url) {
+          try {
+            const response = await fetch(note.image_url, { method: 'HEAD' });
+            const size = parseInt(response.headers.get('content-length') || '0');
+            totalSize += size;
+          } catch (err) {
+            console.error('Error calculating image size:', err);
+          }
+        }
+      }
+
+      setUserStorage({
+        used: totalSize,
+        total: 500 * 1024 * 1024, // 500MB in bytes
+        unlimited: isUnlimited
+      });
+
+      return totalSize;
+    } catch (err) {
+      console.error('Error calculating storage:', err);
+      return 0;
+    }
+  };
+
+  // Update the saveNote function to check storage limit before saving
+  const saveNote = async () => {
+    try {
+      if (!title.trim() && !content.trim()) {
+        alert('Please add a title or content to your note');
+        return;
+      }
+
+      // Calculate size of new content
+      const contentSize = new Blob([content]).size;
+      let imageSize = 0;
+
+      // Calculate size of new image if exists
+      if (imageUrl) {
+        try {
+          const response = await fetch(imageUrl, { method: 'HEAD' });
+          imageSize = parseInt(response.headers.get('content-length') || '0');
+        } catch (err) {
+          console.error('Error calculating image size:', err);
+        }
+      }
+
+      // Get current storage usage
+      const currentUsage = await calculateUserStorage();
+      const newTotalSize = currentUsage + contentSize + imageSize;
+
+      // Check if adding this note would exceed storage limit
+      if (!userStorage.unlimited && newTotalSize > userStorage.total) {
+        alert('Storage limit reached! Please delete some notes or upgrade your storage.');
+        return;
+      }
+
+      const noteData = {
+        title: title.trim() || 'Untitled',
+        content: encryptData(content),
+        user_id: user.id,
+        image_url: imageUrl || null,
+        created_at: editingId ? undefined : new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      let error;
+      if (editingId) {
+        const { error: updateError } = await supabase
+          .from('notes')
+          .update(noteData)
+          .eq('id', editingId);
+        error = updateError;
       } else {
-        imageUrlToSave = imageUrl;
+        const { error: insertError } = await supabase
+          .from('notes')
+          .insert([noteData]);
+        error = insertError;
       }
+
+      if (error) throw error;
+
+      // Clear form
+      setTitle('');
+      setContent('');
+      setImageUrl(null);
+      setEditingId(null);
+
+      // Recalculate storage after successful save
+      await calculateUserStorage();
+
+      // Refresh notes list
+      fetchNotes();
+      
+      alert(editingId ? 'Note updated successfully!' : 'Note saved successfully!');
+    } catch (err) {
+      console.error('Error saving note:', err);
+      alert('Error saving note: ' + err.message);
     }
-
-    console.log('Image URL to save in note:', imageUrlToSave); // Log the URL when storing in note
-
-    const timestamp = new Date();
-    const formattedDate = timestamp.toLocaleString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-
-    const encryptedTitle = encryptData(title); // Encrypt title
-    const encryptedContent = encryptData(content); // Encrypt content
-    const encryptedImageUrl = imageUrlToSave ? encryptData(imageUrlToSave) : null; // Encrypt image URL
-
-    if (editingId) {
-      const { error } = await supabase
-        .from('notes')
-        .update({
-          title: encryptedTitle,
-          content: encryptedContent,
-          image_url: encryptedImageUrl, // Use encrypted image URL
-          updated_at: timestamp.toISOString(),
-          user_id: authUserId,
-        })
-        .eq('id', editingId);
-
-      if (error) {
-        console.error("Error updating note:", error);
-        alert('Error updating note: ' + error.message);
-        return;
-      }
-    } else {
-      const { error } = await supabase
-        .from('notes')
-        .insert([{
-          title: encryptedTitle,
-          content: encryptedContent,
-          image_url: encryptedImageUrl, // Use encrypted image URL
-          created_at: formattedDate,
-          updated_at: formattedDate,
-          user_id: authUserId,
-        }]);
-      if (error) {
-        console.error("Error creating note:", error);
-        alert('Error creating note: ' + error.message);
-        return;
-      }
-    }
-
-    // Reset form fields
-    setTitle('');
-    setContent('');
-    setImage(null);
-    setEditingId(null);
-    setImageUrl(null);
-
-    await fetchNotes(); // Refresh notes
-  }
+  };
 
   const handleDelete = async (id) => {
     const confirmDelete = window.confirm("Are you sure you want to delete this note?");
@@ -1111,124 +1173,84 @@ export default function App() {
         return;
       }
       
-      // Enhanced email validation with regex
+      // Enhanced email validation
       const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
       if (!emailRegex.test(email)) {
         setError('Please provide a valid email address');
         return;
       }
-      
-      // Block common disposable email domains
-      const disposableDomains = ['tempmail.com', 'fakeemail.com', 'mailinator.com', 'guerrillamail.com', 'sharklasers.com'];
-      const emailDomain = email.split('@')[1].toLowerCase();
-      if (disposableDomains.includes(emailDomain)) {
-        setError('Please use a permanent email address for registration');
-        return;
-      }
-      
-      // Password strength check
-      if (password.length < 8) {
-        setError('Password must be at least 8 characters long');
-        return;
-      }
-      
-      let userId = null;
-      let authUser = null;
-      
-      // Register with Supabase Auth with email verification enabled
+
+      // First, create the auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email,
         password: password,
         options: {
-          emailRedirectTo: window.location.origin, // Redirect to the app after verification
           data: {
-            username: email.split('@')[0] // Use part before @ as username for display purposes
+            username: email.split('@')[0]
           }
         }
       });
-      
+
       if (authError) {
-        console.error("Supabase Auth signup error:", authError);
+        console.error("Auth signup error:", authError);
         setError('Sign-up error: ' + authError.message);
         return;
       }
-      
-      if (authData?.user) {
-        // Store the auth user ID
-        userId = authData.user.id;
-        authUser = authData.user;
-        
-        // Store credentials securely for potential session refresh
-        try {
-          localStorage.setItem('userCredentials', JSON.stringify({
-            email: email,
-            password: password
-          }));
-        } catch (e) {
-          console.error("Could not store credentials:", e);
-        }
-      } else {
-        console.warn("No auth user returned from signup");
-        setError('Sign-up error: Authentication failed');
-        return;
-      }
-      
-      // Hash password for custom users table
-      const hashedPassword = await bcrypt.hash(password, 10);
-      
-      // Insert into custom users table - use email as username
-      const userData = { 
-        username: email, // Store email in username column
-        password: hashedPassword
-      };
-      
-      // Associate auth user ID with this user
-      if (userId) {
-        userData.auth_user_id = userId;
-      }
-      
-      const { data, error } = await supabase
-        .from('users')
-        .insert([userData])
-        .select();
 
-      if (error) {
-        // If error, try to clean up auth user if it was created
-        if (authUser) {
-          console.error("Error creating custom user, but auth user was created:", authUser.id);
-        }
-        
-        setError('Sign-up error: ' + error.message);
+      if (!authData.user) {
+        setError('Sign-up error: No user data returned');
         return;
       }
 
-      if (data && data.length > 0) {
-        const userRecord = data[0];
-        
-        // Store auth user in localStorage
-        localStorage.setItem('user', JSON.stringify({
-          ...userRecord,
-          id: authUser.id // Use auth user ID for database operations
-        }));
-        setUser({
-          ...userRecord,
-          id: authUser.id // Use auth user ID for database operations
-        });
-        
-        // Check if email confirmation is required
-        if (authData.user?.confirmationSent || !authData.user?.confirmed_at) {
-          // If email confirmation was sent or user is not confirmed
-          alert('Sign-up successful! Please check your email to verify your account before logging in.');
-          // Log user out until they verify email
-          handleLogout();
-        } else {
-          // If email confirmation is not required or already confirmed
-          await fetchNotes(); // Fetch notes for the new user
-          alert('Sign-up successful! Your account is now ready to use.');
-        }
-      } else {
-        setError('Sign-up error: No user data returned.');
+      // Store the auth user ID
+      const userId = authData.user.id;
+
+      // Create user preferences record
+      const { error: prefError } = await supabase
+        .from('user_preferences')
+        .insert([
+          { 
+            id: userId,
+            backup_enabled: false
+          }
+        ]);
+
+      if (prefError) {
+        console.error("Error creating user preferences:", prefError);
       }
+
+      // Store user in local storage
+      localStorage.setItem('user', JSON.stringify({
+        id: userId,
+        email: email,
+        auth_user_id: userId
+      }));
+
+      // Update application state
+      setUser({
+        id: userId,
+        email: email,
+        auth_user_id: userId
+      });
+
+      // Enable RLS policy for the new user
+      const { error: policyError } = await supabase.rpc('setup_user_security', {
+        user_id: userId
+      });
+
+      if (policyError) {
+        console.error("Error setting up user security:", policyError);
+      }
+
+      // Check if email confirmation is required
+      if (authData.user?.confirmationSent || !authData.user?.confirmed_at) {
+        alert('Sign-up successful! Please check your email to verify your account before logging in.');
+        handleLogout();
+      } else {
+        await fetchNotes();
+        alert('Sign-up successful! Your account is ready to use.');
+      }
+
     } catch (err) {
       console.error("Sign-up error:", err);
       setError('Sign-up error: ' + (err.message || 'Unknown error'));
@@ -2008,12 +2030,298 @@ export default function App() {
     }
   };
 
+  // Add useEffect to calculate storage on component mount and when notes change
+  useEffect(() => {
+    if (user) {
+      calculateUserStorage();
+    }
+  }, [user, notes]); // Add notes as a dependency
+
+  useEffect(() => {
+    if (!user) return; // Only track activity when user is logged in
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    const inactivityTimeout = 10 * 60 * 1000; // 10 minutes
+    let inactivityTimer;
+
+    const resetInactivityTimer = () => {
+      setLastActivity(Date.now());
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        handleLogout();
+        alert('You have been logged out due to inactivity.');
+      }, inactivityTimeout);
+    };
+
+    // Set up event listeners
+    events.forEach(event => {
+      document.addEventListener(event, resetInactivityTimer);
+    });
+
+    // Handle tab visibility
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        const hiddenStartTime = Date.now();
+        const checkHiddenInactivity = () => {
+          if (document.hidden && (Date.now() - hiddenStartTime >= inactivityTimeout)) {
+            handleLogout();
+            alert('You have been logged out due to inactivity.');
+          }
+        };
+        setTimeout(checkHiddenInactivity, inactivityTimeout);
+      } else {
+        resetInactivityTimer();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Initial timer
+    resetInactivityTimer();
+
+    // Cleanup
+    return () => {
+      events.forEach(event => {
+        document.removeEventListener(event, resetInactivityTimer);
+      });
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearTimeout(inactivityTimer);
+    };
+  }, [user]);
+
+  // Modify the password reset functions
+  const handlePasswordReset = async (email) => {
+    try {
+      // First, check if the email exists in auth.users
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError) {
+        console.error("Error getting user:", userError);
+      }
+
+      // Send password reset email using Supabase Auth
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      alert('Password reset instructions have been sent to your email.');
+      setShowPasswordReset(false);
+      
+    } catch (err) {
+      console.error("Password reset error:", err);
+      alert('Error: ' + (err.message || 'Failed to send reset instructions'));
+    }
+  };
+
+  // Function to handle the actual password update
+  const handlePasswordUpdate = async (newPassword) => {
+    try {
+      // Get the session to ensure we have the user
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      if (!session) {
+        throw new Error('No active session found');
+      }
+
+      // Update the password using Supabase Auth
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      alert('Password updated successfully!');
+      setShowPasswordReset(false);
+      
+      // Optionally logout the user to re-authenticate with new password
+      await handleLogout();
+      
+    } catch (err) {
+      console.error("Password update error:", err);
+      alert('Error: ' + (err.message || 'Failed to update password'));
+    }
+  };
+
+  // Update the PasswordReset component JSX
+  const PasswordReset = ({ onClose }) => {
+    const [resetEmail, setResetEmail] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [isEmailVerified, setIsEmailVerified] = useState(false);
+    const [resetError, setResetError] = useState('');
+
+    const handleEmailCheck = async (email) => {
+      try {
+        if (!email.trim()) {
+          setResetError('Please enter an email address');
+          return;
+        }
+
+        // Check if email exists in users table
+        const { data, error } = await supabase
+          .from('users')
+          .select('id')
+          .eq('username', email)
+          .single();
+
+        if (error) {
+          setResetError('Error verifying email');
+          return;
+        }
+
+        if (data) {
+          setIsEmailVerified(true);
+          setResetError('');
+        } else {
+          setResetError('Email not found. Please check your email address.');
+        }
+      } catch (err) {
+        setResetError('Error checking email');
+        console.error(err);
+      }
+    };
+
+    const handlePasswordUpdate = async () => {
+      try {
+        if (!resetEmail || !newPassword) {
+          setResetError('Please fill in all fields');
+          return;
+        }
+
+        if (newPassword.length < 6) {
+          setResetError('Password must be at least 6 characters long');
+          return;
+        }
+
+        // Simply update the password in users table
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({ 
+            password: newPassword,
+            updated_at: new Date().toISOString()
+          })
+          .eq('username', resetEmail);
+
+        if (updateError) throw updateError;
+
+        alert('Password updated successfully! Please login with your new password.');
+        onClose();
+        setResetEmail('');
+        setNewPassword('');
+        setIsEmailVerified(false);
+        setResetError('');
+
+      } catch (err) {
+        setResetError('Error updating password: ' + (err.message || 'Unknown error'));
+        console.error(err);
+      }
+    };
+
+    return (
+      <div className="password-reset-container">
+        <h2>Reset Password</h2>
+        {!isEmailVerified ? (
+          // Step 1: Email verification
+          <div className="input-group">
+            <input
+              type="email"
+              placeholder="Enter your email"
+              value={resetEmail}
+              onChange={(e) => setResetEmail(e.target.value)}
+              className="reset-input"
+            />
+            <button 
+              onClick={() => handleEmailCheck(resetEmail)}
+              className="reset-button"
+            >
+              Verify Email
+            </button>
+          </div>
+        ) : (
+          // Step 2: New password input
+          <div className="input-group">
+            <p className="verified-email">Email verified: {resetEmail}</p>
+            <input
+              type="password"
+              placeholder="Enter new password"
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="reset-input"
+              autoComplete="off"
+            />
+            <button 
+              onClick={handlePasswordUpdate}
+              className="reset-button"
+            >
+              Update Password
+            </button>
+          </div>
+        )}
+        
+        {resetError && <p className="error-message">{resetError}</p>}
+        
+        <button 
+          onClick={onClose}
+          className="cancel-button"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="container">
       {user ? (
         <div className="dashboard">
           <div className="sidebar">
             <h2>Welcome {user.username}</h2>
+            <div className="storage-status">
+              <FaHdd className="storage-icon" />
+              <div className="storage-details">
+                <div className="storage-text-wrapper">
+                  <span className="storage-text">
+                    {formatBytes(userStorage.used)}
+                    {userStorage.unlimited ? (
+                      <span className="unlimited-badge">Unlimited</span>
+                    ) : (
+                      <> / {formatBytes(userStorage.total)}</>
+                    )}
+                  </span>
+                </div>
+                <div className="storage-bar">
+                  {userStorage.unlimited ? (
+                    // For unlimited user, show usage without a maximum
+                    <div 
+                      className="storage-used unlimited"
+                      style={{ 
+                        width: '100%',
+                        background: `linear-gradient(90deg, 
+                          #4CAF50 ${Math.min((userStorage.used / (1024 * 1024 * 1024)) * 100, 100)}%, 
+                          rgba(255, 255, 255, 0.1) 0%)`
+                      }}
+                    />
+                  ) : (
+                    // For regular users, show usage relative to 500MB limit
+                    <div 
+                      className={`storage-used ${
+                        (userStorage.used / userStorage.total) > 0.9 ? 'danger' :
+                        (userStorage.used / userStorage.total) > 0.7 ? 'warning' : ''
+                      }`}
+                      style={{ width: `${Math.min((userStorage.used / userStorage.total) * 100, 100)}%` }}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
             <button className="sidebar-btn history-button" onClick={handleHistory}>
               <FaHistory /> Your Notes
             </button>
@@ -2187,7 +2495,9 @@ export default function App() {
         </div>
       ) : (
         showPasswordReset ? (
-          <PasswordReset onBack={() => setShowPasswordReset(false)} />
+          <PasswordReset 
+            onClose={() => setShowPasswordReset(false)} 
+          />
         ) : (
           <div className="login-form">
             <h2>{isSignUp ? 'Sign Up' : 'Login'}</h2>
