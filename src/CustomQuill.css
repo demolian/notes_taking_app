@@ -1,0 +1,86 @@
+/* Code block styling */
+.ql-editor pre {
+    background-color: #1E1E1E;
+    color: #D4D4D4;
+    padding: 15px;
+    border-radius: 4px;
+    margin: 5px 0;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    position: relative;
+  }
+  
+  .ql-editor pre::before {
+    content: attr(data-language);
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: #333;
+    color: white;
+    padding: 3px 10px;
+    font-size: 12px;
+    border-radius: 0 4px 0 4px;
+    text-transform: uppercase;
+  }
+  
+  /* Language selection dialog */
+  .language-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+  }
+  
+  .language-dialog-content {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  }
+  
+  .language-dialog h3 {
+    margin: 0 0 15px 0;
+    color: #333;
+  }
+  
+  .language-dialog select {
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+  
+  .dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+  
+  .dialog-buttons button {
+    padding: 8px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  #confirm-lang {
+    background: #4CAF50;
+    color: white;
+  }
+  
+  #cancel-lang {
+    background: #f44336;
+    color: white;
+  }
+  
+  /* Syntax highlighting theme overrides */
+  .hljs {
+    background: transparent !important;
+    padding: 0 !important;
+  }

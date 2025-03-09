@@ -2043,7 +2043,7 @@ export default function App() {
     if (!user) return; // Only track activity when user is logged in
 
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-    const inactivityTimeout = 10 * 60 * 1000; // 10 minutes
+    const inactivityTimeout = 8 * 60 * 60 * 1000; // 8 hours // 10 * 60 * 1000; // 10 minutes
     let inactivityTimer;
 
     const resetInactivityTimer = () => {
