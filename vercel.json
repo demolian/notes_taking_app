@@ -11,25 +11,8 @@
   ],
   "routes": [
     {
-      "src": "/static/(.*)",
-      "headers": {
-        "cache-control": "s-maxage=31536000,immutable"
-      }
-    },
-    {
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "env": {
-    "GENERATE_SOURCEMAP": "false",
-    "ESLINT_NO_DEV_ERRORS": "true",
-    "DISABLE_ESLINT_PLUGIN": "true",
-    "TSC_COMPILE_ON_ERROR": "true"
-  },
-  "functions": {
-    "app/api/**/*.js": {
-      "runtime": "nodejs22.x"
-    }
-  }
+  ]
 }
