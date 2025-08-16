@@ -48,11 +48,29 @@ const ContentWithCopyButtons = memo(({ htmlContent, className = '' }) => {
         
         // Render the React component into the button container
         import('react-dom/client').then(({ createRoot }) => {
-          const root = createRoot(copyButton);
-          root.render(React.createElement(CodeCopyButton, { 
-            code: codeText,
-            className: 'code-snippet-copy'
-          }));
+          try {
+            const root = createRoot(copyButton);
+            root.render(React.createElement(CodeCopyButton, { 
+              code: codeText,
+              className: 'code-snippet-copy'
+            }));
+          } catch (error) {
+            console.warn('Failed to render copy button:', error);
+            // Fallback: create a simple button
+            copyButton.innerHTML = `
+              <button class="code-copy-button code-snippet-copy" onclick="navigator.clipboard.writeText('${codeText.replace(/'/g, "\\'")}')">
+                Copy
+              </button>
+            `;
+          }
+        }).catch(error => {
+          console.warn('Failed to load React DOM client:', error);
+          // Fallback: create a simple button
+          copyButton.innerHTML = `
+            <button class="code-copy-button code-snippet-copy" onclick="navigator.clipboard.writeText('${codeText.replace(/'/g, "\\'")}')">
+              Copy
+            </button>
+          `;
         });
       }
     });
