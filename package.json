@@ -13,6 +13,7 @@
     "browser-image-compression": "^1.0.0",
     "crypto-js": "^4.2.0",
     "cross-env": "^7.0.3",
+    "@craco/craco": "^7.1.0",
     "file-saver": "^2.0.5",
     "http-proxy-middleware": "^3.0.3",
     "jszip": "^3.10.1",
@@ -28,11 +29,11 @@
     "xlsx": "^0.18.5"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "cross-env GENERATE_SOURCEMAP=false react-scripts build",
-    "build:local": "cross-env GENERATE_SOURCEMAP=false react-scripts build && node scripts/build-optimize.js",
+    "start": "craco start",
+    "build": "cross-env GENERATE_SOURCEMAP=false craco build",
+    "build:local": "cross-env GENERATE_SOURCEMAP=false craco build && node scripts/build-optimize.js",
     "build:analyze": "npm run build && npx serve -s build",
-    "test": "react-scripts test",
+    "test": "craco test",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {

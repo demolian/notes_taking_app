@@ -1,6 +1,7 @@
 .notes-history {
   padding: 20px;
-  background-color: wheat; /*#f9f9f9;*/
+  background-color: wheat;
+  /*#f9f9f9;*/
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   max-width: 100%;
@@ -53,7 +54,8 @@
   align-items: center;
   gap: 5px;
   padding: 8px 15px;
-  background-color: gray; /* #f0f0f0; */
+  background-color: gray;
+  /* #f0f0f0; */
   border: 1px solid #ddd;
   border-radius: 4px;
   cursor: pointer;
@@ -69,7 +71,8 @@
   align-items: center;
   gap: 5px;
   padding: 8px 15px;
-  background-color: rebeccapurple; /* #f0f0f0; */
+  background-color: rebeccapurple;
+  /* #f0f0f0; */
   border: 1px solid #ddd;
   border-radius: 4px;
   cursor: pointer;
@@ -192,7 +195,8 @@
   border-top: 1px solid #eee;
 }
 
-.edit-button, .delete-button {
+.edit-button,
+.delete-button {
   flex: 1;
   padding: 8px;
   border: none;
@@ -231,33 +235,35 @@
   .notes-list {
     grid-template-columns: 1fr;
   }
-  
+
   .search-sort-container {
     flex-direction: column;
     gap: 10px;
   }
-  
+
   .search-container {
     max-width: 100%;
   }
-  
+
   .sort-actions {
     display: flex;
     width: 100%;
     justify-content: space-between;
   }
-  
+
   .multi-select-options {
     flex-direction: column;
     gap: 10px;
     align-items: flex-start;
   }
-  
+
   .delete-selected-button {
     align-self: stretch;
     justify-content: center;
   }
-} /* E
+}
+
+/* E
 nhanced NotesHistory styles for new features */
 
 .notes-history {
@@ -494,7 +500,8 @@ nhanced NotesHistory styles for new features */
   margin-left: 15px;
 }
 
-.edit-button, .delete-button {
+.edit-button,
+.delete-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -542,65 +549,65 @@ nhanced NotesHistory styles for new features */
   .notes-history {
     padding: 15px;
   }
-  
+
   .notes-history h2 {
     font-size: 1.5rem;
     margin-bottom: 20px;
   }
-  
+
   .search-sort-container {
     flex-direction: column;
     gap: 15px;
   }
-  
+
   .search-container {
     min-width: 100%;
   }
-  
+
   .sort-actions {
     width: 100%;
     justify-content: center;
     flex-wrap: wrap;
   }
-  
+
   .multi-select-options {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
   }
-  
+
   .selected-actions {
     width: 100%;
     flex-direction: column;
   }
-  
+
   .export-selected-button,
   .delete-selected-button {
     width: 100%;
     justify-content: center;
   }
-  
+
   .note-item {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
   }
-  
+
   .note-checkbox {
     margin: 0 0 10px 0;
     align-self: flex-start;
   }
-  
+
   .note-content {
     order: 1;
   }
-  
+
   .note-actions {
     order: 2;
     margin: 10px 0 0 0;
     justify-content: center;
   }
-  
+
   .note-content h3 {
     white-space: normal;
     overflow: visible;
@@ -613,7 +620,7 @@ nhanced NotesHistory styles for new features */
   .search-sort-container {
     gap: 15px;
   }
-  
+
   .search-container {
     min-width: 200px;
   }
@@ -625,6 +632,7 @@ nhanced NotesHistory styles for new features */
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -640,15 +648,15 @@ nhanced NotesHistory styles for new features */
   .note-item {
     border: 2px solid #000;
   }
-  
+
   .note-item.selected {
     border: 3px solid #0066cc;
   }
-  
+
   .search-input {
     border: 2px solid #000;
   }
-  
+
   .search-input:focus {
     border: 3px solid #0066cc;
   }

@@ -1,6 +1,4 @@
 // reactPolyfill.js - Provides compatibility for older React libraries with React 19
-import React from 'react';
-import ReactDOMClient from 'react-dom/client';
 import ReactDOM from 'react-dom';
 
 // Export a compatibility layer for findDOMNode
