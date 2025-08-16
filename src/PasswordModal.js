@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import './PasswordModal.css'; // Optional: Create a CSS file for styling
+import React, { useState, memo } from 'react';
+import './PasswordModal.css';
 
-export default function PasswordModal({ onConfirm, onCancel }) {
+const PasswordModal = memo(({ onConfirm, onCancel }) => {
   const [password, setPassword] = useState('');
 
   const handleConfirm = (e) => {
@@ -28,4 +28,8 @@ export default function PasswordModal({ onConfirm, onCancel }) {
       </div>
     </div>
   );
-}
+});
+
+PasswordModal.displayName = 'PasswordModal';
+
+export default PasswordModal;

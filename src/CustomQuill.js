@@ -1,10 +1,9 @@
-import React, { useRef, useEffect, forwardRef, useState } from 'react';
+import React, { useRef, useEffect, forwardRef, useState, memo } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
-// This is a wrapper component for ReactQuill that works with React 18
-// It addresses the findDOMNode deprecation and ensures good compatibility
-const CustomQuill = forwardRef(({ value, onChange, placeholder, modules, formats, className }, ref) => {
+// Optimized wrapper component for ReactQuill with React 18 compatibility
+const CustomQuill = memo(forwardRef(({ value, onChange, placeholder, modules, formats, className }, ref) => {
   const quillRef = useRef(null);
   const containerRef = useRef(null);
   const editorRef = useRef(null);
@@ -84,7 +83,7 @@ const CustomQuill = forwardRef(({ value, onChange, placeholder, modules, formats
       />
     </div>
   );
-});
+}));
 
 CustomQuill.displayName = 'CustomQuill';
 

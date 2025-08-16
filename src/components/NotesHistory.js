@@ -1,42 +1,49 @@
-import React, { useState } from 'react';
-import { FaEdit, FaTrash, FaSearch, FaSortAlphaDown, FaSortAlphaUp, FaSortNumericDown, FaSortNumericUp, FaCheck, FaCheckSquare, FaRegSquare } from 'react-icons/fa';
+import React, { useState, memo, useMemo } from 'react';
+import { FaEdit, FaTrash, FaSearch, FaSortAlphaDown, FaSortAlphaUp, FaSortNumericDown, FaSortNumericUp, FaCheckSquare, FaRegSquare, FaFilePdf, FaDownload } from 'react-icons/fa';
+import { useDebounce } from '../hooks/useDebounce';
+import { exportMultipleNotesToPDF } from '../utils/pdfExport';
 import './NotesHistory.css';
 
-const NotesHistory = ({ notes, onViewNote, onEditNote, onDeleteNote, onDeleteMultiple, decryptData }) => {
+const NotesHistory = memo(({ notes, onViewNote, onEditNote, onDeleteNote, onDeleteMultiple, decryptData }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 300); // 300ms delay
   const [sortOrder, setSortOrder] = useState('newest'); // 'newest', 'oldest', 'a-z', 'z-a'
   const [selectedNotes, setSelectedNotes] = useState([]);
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
   
-  // Filter notes based on search term
-  const filteredNotes = notes.filter(note => {
-    const decryptedTitle = decryptData(note.title) || '';
-    const decryptedContent = decryptData(note.content) || '';
+  // Memoize filtered and sorted notes for better performance
+  const sortedNotes = useMemo(() => {
+    // Filter notes based on debounced search term
+    const filteredNotes = notes.filter(note => {
+      const decryptedTitle = decryptData(note.title) || '';
+      const decryptedContent = decryptData(note.content) || '';
+      
+      // Convert to lowercase for case-insensitive search
+      const searchTermLower = debouncedSearchTerm.toLowerCase();
+      
+      return (
+        decryptedTitle.toLowerCase().includes(searchTermLower) ||
+        decryptedContent.toLowerCase().includes(searchTermLower)
+      );
+    });
     
-    // Convert to lowercase for case-insensitive search
-    const searchTermLower = searchTerm.toLowerCase();
-    
-    return (
-      decryptedTitle.toLowerCase().includes(searchTermLower) ||
-      decryptedContent.toLowerCase().includes(searchTermLower)
-    );
-  });
-  
-  // Sort notes based on sort order
-  const sortedNotes = [...filteredNotes].sort((a, b) => {
-    switch (sortOrder) {
-      case 'newest':
-        return new Date(b.created_at) - new Date(a.created_at);
-      case 'oldest':
-        return new Date(a.created_at) - new Date(b.created_at);
-      case 'a-z':
-        return decryptData(a.title).localeCompare(decryptData(b.title));
-      case 'z-a':
-        return decryptData(b.title).localeCompare(decryptData(a.title));
-      default:
-        return 0;
-    }
-  });
+    // Sort notes based on sort order
+    return [...filteredNotes].sort((a, b) => {
+      switch (sortOrder) {
+        case 'newest':
+          return new Date(b.created_at) - new Date(a.created_at);
+        case 'oldest':
+          return new Date(a.created_at) - new Date(b.created_at);
+        case 'a-z':
+          return decryptData(a.title).localeCompare(decryptData(b.title));
+        case 'z-a':
+          return decryptData(b.title).localeCompare(decryptData(a.title));
+        default:
+          return 0;
+      }
+    });
+  }, [notes, debouncedSearchTerm, sortOrder, decryptData]);
   
   // Toggle sort order
   const toggleSortOrder = () => {
@@ -110,6 +117,44 @@ const NotesHistory = ({ notes, onViewNote, onEditNote, onDeleteNote, onDeleteMul
       setSelectedNotes([]);
     }
   };
+
+  // Export selected notes to PDF
+  const handleExportSelectedToPDF = async () => {
+    if (selectedNotes.length === 0) {
+      alert("No notes selected for export");
+      return;
+    }
+
+    setIsExportingPDF(true);
+    try {
+      const selectedNotesData = notes.filter(note => selectedNotes.includes(note.id));
+      await exportMultipleNotesToPDF(selectedNotesData, decryptData);
+      
+      // Show success message
+      const successMsg = document.createElement('div');
+      successMsg.textContent = `${selectedNotes.length} notes exported to PDF successfully!`;
+      successMsg.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #28a745;
+        color: white;
+        padding: 12px 20px;
+        border-radius: 4px;
+        z-index: 1000;
+        font-size: 14px;
+      `;
+      document.body.appendChild(successMsg);
+      setTimeout(() => document.body.removeChild(successMsg), 3000);
+      
+      setSelectedNotes([]);
+    } catch (error) {
+      console.error('PDF export failed:', error);
+      alert('Failed to export notes to PDF. Please try again.');
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
   
   return (
     <div className="notes-history">
@@ -152,12 +197,29 @@ const NotesHistory = ({ notes, onViewNote, onEditNote, onDeleteNote, onDeleteMul
           </div>
           
           {selectedNotes.length > 0 && (
-            <button 
-              className="delete-selected-button" 
-              onClick={handleDeleteSelected}
-            >
-              <FaTrash /> Delete Selected ({selectedNotes.length})
-            </button>
+            <div className="selected-actions">
+              <button 
+                className="export-selected-button" 
+                onClick={handleExportSelectedToPDF}
+                disabled={isExportingPDF}
+              >
+                {isExportingPDF ? (
+                  <>
+                    <FaDownload className="spinning" /> Exporting...
+                  </>
+                ) : (
+                  <>
+                    <FaFilePdf /> Export PDF ({selectedNotes.length})
+                  </>
+                )}
+              </button>
+              <button 
+                className="delete-selected-button" 
+                onClick={handleDeleteSelected}
+              >
+                <FaTrash /> Delete Selected ({selectedNotes.length})
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -217,6 +279,8 @@ const NotesHistory = ({ notes, onViewNote, onEditNote, onDeleteNote, onDeleteMul
       )}
     </div>
   );
-};
+});
+
+NotesHistory.displayName = 'NotesHistory';
 
 export default NotesHistory; 

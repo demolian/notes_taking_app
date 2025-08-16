@@ -978,4 +978,347 @@ body {
   outline: none;
   border-color: #3498db;
   box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
+}/* Loa
+ding States */
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  font-size: 1.1rem;
+  color: #666;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  margin: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.loading::after {
+  content: '';
+  width: 20px;
+  height: 20px;
+  margin-left: 10px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}/* Res
+ponsive Sidebar Styles */
+.mobile-sidebar-toggle {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 1001;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+}
+
+.mobile-sidebar-toggle:hover {
+  background: #0056b3;
+  transform: scale(1.1);
+}
+
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  backdrop-filter: blur(2px);
+}
+
+.sidebar.mobile {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 1000;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+  box-shadow: 2px 0 20px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar.mobile.visible {
+  transform: translateX(0);
+}
+
+.sidebar.mobile.hidden {
+  transform: translateX(-100%);
+}
+
+.sidebar.desktop {
+  position: relative;
+  transform: none;
+  transition: none;
+}
+
+@media (max-width: 768px) {
+  .dashboard {
+    flex-direction: column;
+  }
+  
+  .main-content {
+    width: 100%;
+    padding: 80px 20px 20px 20px;
+  }
+  
+  .sidebar {
+    width: 280px;
+  }
+}
+
+/* Code Copy Button Styles */
+.code-copy-wrapper {
+  position: relative;
+  margin: 10px 0;
+}
+
+.copy-button-container {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.code-copy-wrapper:hover .copy-button-container {
+  opacity: 1;
+}
+
+.code-copy-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.code-copy-button:hover {
+  background: #0056b3;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.code-copy-button.copied {
+  background: #28a745;
+}
+
+.code-copy-button.copied:hover {
+  background: #1e7e34;
+}
+
+.copy-text {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Enhanced code block styling */
+pre, code, .ql-code-block {
+  background: #f8f9fa !important;
+  border: 1px solid #e9ecef !important;
+  border-radius: 6px !important;
+  padding: 12px !important;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  overflow-x: auto !important;
+  position: relative !important;
+}
+
+/* PDF Export Button Styles */
+.pdf-export-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.pdf-export-button:hover:not(:disabled) {
+  background: #c82333;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.pdf-export-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.export-selected-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #17a2b8;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-right: 10px;
+}
+
+.export-selected-button:hover:not(:disabled) {
+  background: #138496;
+  transform: translateY(-1px);
+}
+
+.export-selected-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.selected-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Note Detail Header Layout */
+.note-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  border-bottom: 1px solid #e9ecef;
+  background: #f8f9fa;
+  border-radius: 8px 8px 0 0;
+  margin-bottom: 20px;
+}
+
+.header-left, .header-right {
+  flex: 0 0 auto;
+}
+
+.header-center {
+  flex: 1;
+  text-align: center;
+  margin: 0 20px;
+}
+
+.header-center h2 {
+  margin: 0 0 5px 0;
+  color: #333;
+  font-size: 1.5rem;
+}
+
+.created-date {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* Spinning animation for loading states */
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Content with copy buttons styling */
+.content-with-copy {
+  position: relative;
+}
+
+.content-with-copy pre,
+.content-with-copy code,
+.content-with-copy .ql-code-block {
+  margin: 15px 0;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+  .note-detail-header {
+    flex-direction: column;
+    gap: 15px;
+    text-align: center;
+  }
+  
+  .header-left, .header-center, .header-right {
+    flex: none;
+    margin: 0;
+  }
+  
+  .selected-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .export-selected-button,
+  .delete-selected-button {
+    width: 100%;
+    margin: 5px 0;
+  }
+  
+  .code-copy-wrapper {
+    margin: 15px 0;
+  }
+  
+  .copy-button-container {
+    opacity: 1; /* Always show on mobile */
+  }
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  .mobile-sidebar-toggle,
+  .sidebar.mobile,
+  .code-copy-button,
+  .pdf-export-button,
+  .export-selected-button {
+    transition: none;
+  }
+  
+  .spinning {
+    animation: none;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .code-copy-button,
+  .pdf-export-button,
+  .export-selected-button {
+    border: 2px solid currentColor;
+  }
+  
+  pre, code, .ql-code-block {
+    border: 2px solid #000 !important;
+  }
 }

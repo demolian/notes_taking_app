@@ -257,4 +257,399 @@
     align-self: stretch;
     justify-content: center;
   }
-} 
+} /* E
+nhanced NotesHistory styles for new features */
+
+.notes-history {
+  padding: 20px;
+  max-width: 100%;
+}
+
+.notes-history h2 {
+  color: #2c3e50;
+  margin-bottom: 25px;
+  font-size: 1.8rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.search-sort-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.search-container {
+  position: relative;
+  flex: 1;
+  min-width: 250px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #666;
+  font-size: 14px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px 12px 12px 40px;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.sort-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.sort-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.sort-button:hover {
+  background: #0056b3;
+  transform: translateY(-1px);
+}
+
+.multi-select-button {
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.multi-select-button:hover {
+  background: #1e7e34;
+  transform: translateY(-1px);
+}
+
+.multi-select-button.active {
+  background: #dc3545;
+}
+
+.multi-select-button.active:hover {
+  background: #c82333;
+}
+
+.multi-select-options {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.select-all-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #333;
+  transition: color 0.2s ease;
+}
+
+.select-all-container:hover {
+  color: #007bff;
+}
+
+.select-all-icon {
+  font-size: 16px;
+  color: #007bff;
+}
+
+.selected-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.delete-selected-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.delete-selected-button:hover {
+  background: #c82333;
+  transform: translateY(-1px);
+}
+
+.notes-list {
+  display: grid;
+  gap: 15px;
+}
+
+.note-item {
+  display: flex;
+  align-items: center;
+  background: white;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 15px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  position: relative;
+}
+
+.note-item:hover {
+  border-color: #007bff;
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.1);
+  transform: translateY(-1px);
+}
+
+.note-item.selected {
+  border-color: #007bff;
+  background: #f8f9ff;
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.15);
+}
+
+.note-checkbox {
+  margin-right: 15px;
+  cursor: pointer;
+}
+
+.checkbox-icon {
+  font-size: 18px;
+  color: #007bff;
+  transition: all 0.2s ease;
+}
+
+.checkbox-icon:hover {
+  transform: scale(1.1);
+}
+
+.note-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.note-content h3 {
+  margin: 0 0 8px 0;
+  color: #2c3e50;
+  font-size: 1.1rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-date {
+  margin: 0;
+  color: #666;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.note-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: 15px;
+}
+
+.edit-button, .delete-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+
+.edit-button {
+  background: #ffc107;
+  color: #212529;
+}
+
+.edit-button:hover {
+  background: #e0a800;
+  transform: translateY(-1px);
+}
+
+.delete-button {
+  background: #dc3545;
+  color: white;
+}
+
+.delete-button:hover {
+  background: #c82333;
+  transform: translateY(-1px);
+}
+
+.no-notes-message {
+  text-align: center;
+  color: #666;
+  font-size: 1.1rem;
+  padding: 40px 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px dashed #dee2e6;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .notes-history {
+    padding: 15px;
+  }
+  
+  .notes-history h2 {
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+  }
+  
+  .search-sort-container {
+    flex-direction: column;
+    gap: 15px;
+  }
+  
+  .search-container {
+    min-width: 100%;
+  }
+  
+  .sort-actions {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  
+  .multi-select-options {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  
+  .selected-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+  
+  .export-selected-button,
+  .delete-selected-button {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .note-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  
+  .note-checkbox {
+    margin: 0 0 10px 0;
+    align-self: flex-start;
+  }
+  
+  .note-content {
+    order: 1;
+  }
+  
+  .note-actions {
+    order: 2;
+    margin: 10px 0 0 0;
+    justify-content: center;
+  }
+  
+  .note-content h3 {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: initial;
+  }
+}
+
+/* Tablet styles */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .search-sort-container {
+    gap: 15px;
+  }
+  
+  .search-container {
+    min-width: 200px;
+  }
+}
+
+/* Animation for loading states */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.note-item {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .note-item {
+    border: 2px solid #000;
+  }
+  
+  .note-item.selected {
+    border: 3px solid #0066cc;
+  }
+  
+  .search-input {
+    border: 2px solid #000;
+  }
+  
+  .search-input:focus {
+    border: 3px solid #0066cc;
+  }
+}

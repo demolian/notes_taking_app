@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { memo } from 'react';
 import './ImageModal.css';
 
-export default function ImageModal({ imageUrl, onClose }) {
+const ImageModal = memo(({ imageUrl, onClose }) => {
   return (
     <div className="imageModal" onClick={onClose}>
       <div className="modalContent" onClick={(e) => e.stopPropagation()}>
@@ -10,4 +10,8 @@ export default function ImageModal({ imageUrl, onClose }) {
       </div>
     </div>
   );
-}
+});
+
+ImageModal.displayName = 'ImageModal';
+
+export default ImageModal;

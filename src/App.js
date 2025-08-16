@@ -1,22 +1,23 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import './App.css'; // Import CSS
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import './App.css';
 import { supabase } from './supabase/supabaseClient'; 
 import imageCompression from 'browser-image-compression';
 import axios from 'axios';
-import PasswordModal from './PasswordModal'; // Correct import
-import ImageModal from './ImageModal'; // Import the ImageModal
-import CryptoJS from 'crypto-js'; // Import CryptoJS
-import Login from './Login'; // Import the new Login component
-import bcrypt from 'bcryptjs'; // Import bcrypt
-import PasswordReset from './PasswordReset'; // Import the PasswordReset component
-import NotesHistory from './components/NotesHistory'; // Import the NotesHistory component
-import NoteDetail from './components/NoteDetail'; // Import the NoteDetail component
+import PasswordModal from './PasswordModal';
+import ImageModal from './ImageModal';
+import CryptoJS from 'crypto-js';
+import Login from './Login';
+import bcrypt from 'bcryptjs';
+import { useResponsiveSidebar } from './hooks/useResponsiveSidebar';
+
+// Lazy load heavy components
+const PasswordReset = lazy(() => import('./PasswordReset'));
+const NotesHistory = lazy(() => import('./components/NotesHistory'));
+const NoteDetail = lazy(() => import('./components/NoteDetail'));
 import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive, FaHdd, FaEye, FaUndo, FaSpinner, FaClone, FaFileAlt } from 'react-icons/fa';
-import CustomQuill from './CustomQuill'; // Import our custom wrapper instead
-import 'react-quill/dist/quill.snow.css'; // Import Quill styles
+import CustomQuill from './CustomQuill';
+import 'react-quill/dist/quill.snow.css';
 import { v4 as uuidv4 } from 'uuid';
-import Crypto from 'crypto-js';
-import ReactQuill from 'react-quill';
 import * as XLSX from 'xlsx';
 import FileSaver from 'file-saver';
 import moment from 'moment';
@@ -55,6 +56,14 @@ function decryptData(ciphertext) {
 
 export default function App() {
   const [user, setUser] = useState(null); // New state to track the logged-in user
+  
+  // Responsive sidebar hook
+  const { 
+    isSidebarVisible, 
+    isMobile, 
+    toggleSidebar, 
+    showSidebarTemporarily 
+  } = useResponsiveSidebar(5000); // 5 second auto-hide delay
   const [notes, setNotes] = useState([]);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -2620,7 +2629,26 @@ export default function App() {
     <div className="container">
       {user ? (
         <div className="dashboard">
-          <div className="sidebar">
+          {/* Mobile sidebar toggle button */}
+          {isMobile && (
+            <button 
+              className="mobile-sidebar-toggle"
+              onClick={toggleSidebar}
+              aria-label="Toggle sidebar"
+            >
+              <FaPlus style={{ transform: isSidebarVisible ? 'rotate(45deg)' : 'rotate(0deg)' }} />
+            </button>
+          )}
+          
+          {/* Sidebar overlay for mobile */}
+          {isMobile && isSidebarVisible && (
+            <div 
+              className="sidebar-overlay"
+              onClick={toggleSidebar}
+            />
+          )}
+          
+          <div className={`sidebar ${isSidebarVisible ? 'visible' : 'hidden'} ${isMobile ? 'mobile' : 'desktop'}`}>
             <h2>Welcome {user.username}</h2>
             <div className="storage-status">
               <FaHdd className="storage-icon" />
@@ -2698,11 +2726,13 @@ export default function App() {
           <div className="main-content">
             {showHistory ? (
               selectedNote ? (
-                <NoteDetail 
-                  note={selectedNote} 
-                  onBack={handleBackToHistory}
-                  decryptData={decryptData}
-                />
+                <Suspense fallback={<div className="loading">Loading note details...</div>}>
+                  <NoteDetail 
+                    note={selectedNote} 
+                    onBack={handleBackToHistory}
+                    decryptData={decryptData}
+                  />
+                </Suspense>
               ) : (
                 <>
                   <div className="history-header">
@@ -2736,14 +2766,16 @@ export default function App() {
                     </button>
                   </div>
                   
-                  <NotesHistory 
-                    notes={notes}
-                    onViewNote={handleViewNote}
-                    onEditNote={handleEdit}
-                    onDeleteNote={handleDelete}
-                    onDeleteMultiple={handleDeleteMultiple}
-                    decryptData={decryptData}
-                  />
+                  <Suspense fallback={<div className="loading">Loading notes history...</div>}>
+                    <NotesHistory 
+                      notes={notes}
+                      onViewNote={handleViewNote}
+                      onEditNote={handleEdit}
+                      onDeleteNote={handleDelete}
+                      onDeleteMultiple={handleDeleteMultiple}
+                      decryptData={decryptData}
+                    />
+                  </Suspense>
                 </>
               )
             ) : showBackupPanel ? (
@@ -2922,9 +2954,11 @@ export default function App() {
         </div>
       ) : (
         showPasswordReset ? (
-          <PasswordReset 
-            onClose={() => setShowPasswordReset(false)} 
-          />
+          <Suspense fallback={<div className="loading">Loading password reset...</div>}>
+            <PasswordReset 
+              onClose={() => setShowPasswordReset(false)} 
+            />
+          </Suspense>
         ) : (
           <div className="login-form">
             <h2>{isSignUp ? 'Sign Up' : 'Login'}</h2>

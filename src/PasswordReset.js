@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { supabase } from './supabase/supabaseClient'; // Import Supabase client
-import bcrypt from 'bcryptjs'; // Import bcrypt for password hashing
-import './PasswordReset.css'; // Import CSS for styling
+import React, { useState, memo } from 'react';
+import { supabase } from './supabase/supabaseClient';
+import bcrypt from 'bcryptjs';
+import './PasswordReset.css';
 
-const PasswordReset = ({ onBack }) => {
+const PasswordReset = memo(({ onBack }) => {
   const [email, setEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -208,6 +208,8 @@ const PasswordReset = ({ onBack }) => {
       )}
     </div>
   );
-};
+});
+
+PasswordReset.displayName = 'PasswordReset';
 
 export default PasswordReset;

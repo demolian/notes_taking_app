@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import './Login.css'; // Optional: Add your CSS for styling
+import React, { useState, memo } from 'react';
+import './Login.css';
 
-const Login = ({ onLogin, onSignUp }) => {
+const Login = memo(({ onLogin, onSignUp }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -87,6 +87,8 @@ const Login = ({ onLogin, onSignUp }) => {
       </p>
     </div>
   );
-};
+});
+
+Login.displayName = 'Login';
 
 export default Login;
