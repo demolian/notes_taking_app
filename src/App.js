@@ -1,28 +1,29 @@
 import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import './App.css';
-import { supabase } from './supabase/supabaseClient'; 
-import imageCompression from 'browser-image-compression';
-import axios from 'axios';
-import PasswordModal from './PasswordModal';
-import ImageModal from './ImageModal';
-import CryptoJS from 'crypto-js';
-import Login from './Login';
-import bcrypt from 'bcryptjs';
-import { useResponsiveSidebar } from './hooks/useResponsiveSidebar';
-
-// Lazy load heavy components
-const PasswordReset = lazy(() => import('./PasswordReset'));
-const NotesHistory = lazy(() => import('./components/NotesHistory'));
-const NoteDetail = lazy(() => import('./components/NoteDetail'));
-import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive, FaHdd, FaEye, FaUndo, FaSpinner, FaClone, FaFileAlt } from 'react-icons/fa';
-import CustomQuill from './CustomQuill';
-import 'react-quill/dist/quill.snow.css';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
 import FileSaver from 'file-saver';
 import moment from 'moment';
 import JSZip from 'jszip';
+import axios from 'axios';
+import imageCompression from 'browser-image-compression';
+import bcrypt from 'bcryptjs';
+import CryptoJS from 'crypto-js';
+import { FaImage, FaCamera, FaSave, FaHistory, FaSignOutAlt, FaPlus, FaTimes, FaArrowLeft, FaCloudUploadAlt, FaEdit, FaTrash, FaSearch, FaDownload, FaUpload, FaCloudDownloadAlt, FaFileArchive, FaHdd, FaEye, FaUndo, FaSpinner, FaClone, FaFileAlt } from 'react-icons/fa';
+import 'react-quill/dist/quill.snow.css';
+
+import './App.css';
+import { supabase } from './supabase/supabaseClient'; 
+import PasswordModal from './PasswordModal';
+import ImageModal from './ImageModal';
+import Login from './Login';
+import CustomQuill from './CustomQuill';
+import { useResponsiveSidebar } from './hooks/useResponsiveSidebar';
 import { formatBytes } from './formatBytes';
+
+// Lazy load heavy components
+const PasswordReset = lazy(() => import('./PasswordReset'));
+const NotesHistory = lazy(() => import('./components/NotesHistory'));
+const NoteDetail = lazy(() => import('./components/NoteDetail'));
 
 const secretKey = process.env.REACT_APP_SECRET_KEY; // Get the secret key from environment variables
 
