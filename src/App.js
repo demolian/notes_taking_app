@@ -53,6 +53,28 @@ function decryptData(ciphertext) {
 }
 
 export default function App() {
+  // Debug environment variables
+  console.log('Environment check:', {
+    NODE_ENV: process.env.NODE_ENV,
+    SUPABASE_URL: process.env.REACT_APP_SUPABASE_URL ? 'Set' : 'Missing',
+    SECRET_KEY: process.env.REACT_APP_SECRET_KEY ? 'Set' : 'Missing'
+  });
+
+  // Early return if critical environment variables are missing
+  if (!process.env.REACT_APP_SUPABASE_URL || !process.env.REACT_APP_SECRET_KEY) {
+    return (
+      <div style={{ padding: '20px', textAlign: 'center', fontFamily: 'Arial, sans-serif' }}>
+        <h2>Configuration Error</h2>
+        <p>Missing required environment variables. Please check your Vercel environment settings.</p>
+        <ul style={{ textAlign: 'left', display: 'inline-block' }}>
+          <li>REACT_APP_SUPABASE_URL: {process.env.REACT_APP_SUPABASE_URL ? '✅ Set' : '❌ Missing'}</li>
+          <li>REACT_APP_SECRET_KEY: {process.env.REACT_APP_SECRET_KEY ? '✅ Set' : '❌ Missing'}</li>
+          <li>REACT_APP_SUPABASE_KEY: {process.env.REACT_APP_SUPABASE_KEY ? '✅ Set' : '❌ Missing'}</li>
+        </ul>
+      </div>
+    );
+  }
+
   const [user, setUser] = useState(null); // New state to track the logged-in user
   
   // Responsive sidebar hook
