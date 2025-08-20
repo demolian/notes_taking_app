@@ -1146,6 +1146,26 @@ pre, code, .ql-code-block {
   position: relative !important;
 }
 
+/* Ensure Quill code blocks remain visible while editing */
+.ql-editor pre.ql-syntax,
+.ql-syntax {
+	background: #f8f9fa !important;
+	color: #212529 !important; /* Dark text on light background */
+	border: 1px solid #e9ecef !important;
+	border-radius: 6px !important;
+	padding: 12px !important;
+	font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important;
+	font-size: 13px !important;
+	line-height: 1.5 !important;
+	overflow-x: auto !important;
+	white-space: pre !important;
+}
+
+/* Make nested code inherit readable color */
+.ql-editor pre code {
+	color: inherit !important;
+}
+
 /* PDF Export Button Styles */
 .pdf-export-button {
   display: flex;
