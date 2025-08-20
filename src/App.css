@@ -293,6 +293,9 @@ body {
   margin-bottom: 8px;
   font-size: 18px;
   color: #333;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* .noteCard p { old
@@ -1158,7 +1161,9 @@ pre, code, .ql-code-block {
 	font-size: 13px !important;
 	line-height: 1.5 !important;
 	overflow-x: auto !important;
-	white-space: pre !important;
+	/* Soft-wrap long lines while editing so caret continues to next line */
+	white-space: pre-wrap !important;
+	word-break: break-word !important;
 }
 
 /* Make nested code inherit readable color */

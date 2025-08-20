@@ -181,6 +181,8 @@
   margin: 0 0 10px 0;
   color: #333;
   font-size: 1.2rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
@@ -482,9 +484,11 @@ nhanced NotesHistory styles for new features */
   color: #2c3e50;
   font-size: 1.1rem;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: initial;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .note-date {
